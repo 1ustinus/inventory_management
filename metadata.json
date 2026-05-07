@@ -1,0 +1,13 @@
+{
+  "name": "FlexiMart POS & Inventory System",
+  "description": "A professional, supermarket-inspired POS and Inventory Management System with real-time analytics, barcode scanning, and role-based access control.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "POS",
+    "Inventory Management",
+    "Analytics",
+    "Real-time Notifications"
+  ]
+}

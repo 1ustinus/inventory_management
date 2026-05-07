@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+@theme {
+  --color-win-bg: #C0C0C0;
+  --color-win-surface: #DFDFDF;
+  --color-win-dark: #808080;
+  --color-win-darker: #404040;
+  --color-win-light: #FFFFFF;
+  --color-win-blue: #000080;
+  --color-win-text: #000000;
+  --font-serif: "Times New Roman", Times, serif;
+  --font-sans: "MS Sans Serif", "Tahoma", "Inter", sans-serif;
+  --font-mono: "Courier New", Courier, monospace;
+}
+
+@layer base {
+  body {
+    @apply bg-[var(--color-win-bg)] text-[var(--color-win-text)] font-sans transition-colors duration-200;
+    image-rendering: pixelated;
+  }
+}
+
+@layer components {
+  .win-outset {
+    @apply bg-[var(--color-win-bg)] border-2;
+    border-color: var(--color-win-light) var(--color-win-dark) var(--color-win-dark) var(--color-win-light);
+  }
+  
+  .win-inset {
+    @apply bg-white border-2 transition-colors;
+    border-color: var(--color-win-dark) var(--color-win-light) var(--color-win-light) var(--color-win-dark);
+  }
+
+  .win-button {
+    @apply px-4 py-1 bg-[var(--color-win-bg)] border-2 font-bold text-sm active:translate-x-[1px] active:translate-y-[1px] cursor-pointer transition-colors;
+    border-color: var(--color-win-light) var(--color-win-dark) var(--color-win-dark) var(--color-win-light);
+  }
+
+  .win-header {
+    @apply bg-gradient-to-r from-[var(--color-win-blue)] to-[#1084d0] px-2 py-1 text-white flex items-center justify-between font-bold text-sm;
+  }
+
+  .win-label {
+    @apply text-sm font-bold text-[var(--color-win-text)];
+  }
+
+  .win-input {
+    @apply px-2 py-1 bg-white border-2 text-sm outline-none transition-colors;
+    border-color: var(--color-win-dark) var(--color-win-light) var(--color-win-light) var(--color-win-dark);
+  }
+}
+
+.markdown-body {
+  @apply text-gray-900;
+}
