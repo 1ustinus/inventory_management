@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Save, Barcode as BarcodeIcon, Printer, FileSpreadsheet, AlertCircle, Info, Image as ImageIcon, Box, Tag, DollarSign, Activity } from 'lucide-react';
+import { X, Save, Barcode as BarcodeIcon, Printer, FileSpreadsheet, AlertCircle, Info, Image as ImageIcon, Box, Tag, DollarSign, Activity, Upload } from 'lucide-react';
 import { CATEGORIES } from '../constants';
 import { localDb, STORAGE_KEYS } from '../lib/localDb';
 
@@ -48,6 +48,36 @@ export default function ProductModal({ isOpen, onClose, editingProduct }: Produc
   });
 
   const itemName = watch('name');
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setValue('imageUrl', reader.result as string, { shouldValidate: true });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setValue('imageUrl', reader.result as string, { shouldValidate: true });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   // Handle editingProduct changes
   React.useEffect(() => {
@@ -169,22 +199,41 @@ export default function ProductModal({ isOpen, onClose, editingProduct }: Produc
                   <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
                     {/* Top Control Bar */}
                     <div className="flex flex-col md:flex-row gap-4 items-start pb-4 border-b border-gray-300">
-                       <div className="win-inset bg-white p-1 shrink-0 w-32 h-32 flex items-center justify-center relative group">
+                       <div 
+                         onDragOver={onDragOver}
+                         onDrop={onDrop}
+                         className="win-inset bg-white p-1 shrink-0 w-32 h-32 flex items-center justify-center relative group cursor-pointer"
+                         onClick={() => fileInputRef.current?.click()}
+                       >
+                          <input 
+                            type="file" 
+                            ref={fileInputRef} 
+                            className="hidden" 
+                            accept="image/*" 
+                            onChange={handleFileUpload} 
+                          />
                           {watch('imageUrl') ? (
                             <img src={watch('imageUrl')} alt="Preview" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                           ) : (
-                            <div className="flex flex-col items-center justify-center text-gray-400 gap-2">
+                            <div className="flex flex-col items-center justify-center text-gray-400 gap-2 p-2 text-center">
                                <ImageIcon className="w-8 h-8 opacity-20" />
-                               <span className="text-[8px] font-bold uppercase tracking-tighter">No_Visual_ID</span>
+                               <span className="text-[8px] font-bold uppercase tracking-tighter">DROP_OR_CLICK_TO_UPLOAD</span>
                             </div>
                           )}
-                          <div className="absolute inset-0 bg-blue-900/0 group-hover:bg-blue-900/40 transition-all flex items-center justify-center flex-col opacity-0 group-hover:opacity-100 p-2 text-center pointer-events-none md:pointer-events-auto">
+                          <div className="absolute inset-0 bg-blue-900/0 group-hover:bg-blue-900/60 transition-all flex items-center justify-center flex-col opacity-0 group-hover:opacity-100 p-2 gap-1 pointer-events-none md:pointer-events-auto">
                              <button 
                               type="button" 
-                              onClick={handleGenerateImage}
+                              onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
                               className="win-button text-[8px] p-1 w-full flex items-center justify-center gap-1 bg-white hover:italic"
                              >
-                               <Save className="w-2.5 h-2.5" /> REGEN_IMG
+                               <Upload className="w-2.5 h-2.5" /> UPLOAD_FILE
+                             </button>
+                             <button 
+                              type="button" 
+                              onClick={(e) => { e.stopPropagation(); handleGenerateImage(); }}
+                              className="win-button text-[8px] p-1 w-full flex items-center justify-center gap-1 bg-white hover:italic"
+                             >
+                               <Save className="w-2.5 h-2.5" /> REGEN_AUTO
                              </button>
                           </div>
                        </div>
