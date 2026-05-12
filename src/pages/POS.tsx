@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Search, 
-  Image,
   Minus, 
   Plus, 
   Trash2, 
@@ -60,6 +59,8 @@ export default function POS() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [editingQtyId, setEditingQtyId] = useState<string | null>(null);
 
   const scanInputRef = useRef<HTMLInputElement>(null);
@@ -71,19 +72,33 @@ export default function POS() {
   };
 
   const syncPendingSales = async () => {
-    if (!navigator.onLine || isSyncing) return;
+    if (!navigator.onLine) {
+      setSyncError('OFFLINE: Check network');
+      return;
+    }
+    
+    if (isSyncing) return;
     
     const allSales = localDb.getAll<Sale>(STORAGE_KEYS.SALES);
     const pendingSales = allSales.filter(s => !s.isSynced);
     
-    if (pendingSales.length === 0) return;
+    if (pendingSales.length === 0) {
+      setSyncError(null);
+      return;
+    }
 
     try {
       setIsSyncing(true);
+      setSyncError(null);
+      
       const response = await fetch('/api/sync/sales', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sales: pendingSales })
+        body: JSON.stringify({ 
+          sales: pendingSales,
+          syncSource: `STATION-${stationId}`,
+          timestamp: new Date().toISOString()
+        })
       });
 
       if (response.ok) {
@@ -91,10 +106,15 @@ export default function POS() {
         pendingSales.forEach(sale => {
           localDb.update<Sale>(STORAGE_KEYS.SALES, sale.id, { isSynced: true });
         });
+        setLastSyncTime(new Date().toLocaleTimeString());
         updatePendingCount();
+        setSyncError(null);
+      } else {
+        throw new Error('Server rejected backup');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Sync failed:', err);
+      setSyncError(err.message || 'Sync error');
     } finally {
       setIsSyncing(false);
     }
@@ -236,30 +256,15 @@ export default function POS() {
     setProducts(data.filter(p => p.stockQuantity > 0));
   };
 
-  const generateMissingImages = () => {
-    const allProducts = localDb.getAll<Product>(STORAGE_KEYS.PRODUCTS);
-    let updatedCount = 0;
-    
-    allProducts.forEach(p => {
-      if (!p.imageUrl) {
-        localDb.update<Product>(STORAGE_KEYS.PRODUCTS, p.id, {
-          imageUrl: `https://picsum.photos/seed/${p.id}/400/400`,
-          updatedAt: new Date().toISOString()
-        });
-        updatedCount++;
-      }
-    });
-
-    if (updatedCount > 0) {
-      fetchProducts();
-      window.dispatchEvent(new Event('storage_update'));
-    }
-  };
-
   const addToCart = (product: Product) => {
     setCart(prev => {
       const existing = prev.find(item => item.id === product.id);
       if (existing) {
+        if (existing.quantity >= product.stockQuantity) {
+          setScanError(`MAX STOCK REACHED: ${product.name}`);
+          setTimeout(() => setScanError(null), 2000);
+          return prev;
+        }
         return prev.map(item => 
           item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
         );
@@ -275,7 +280,15 @@ export default function POS() {
   const updateQuantity = (id: string, delta: number) => {
     setCart(prev => prev.map(item => {
       if (item.id === id) {
-        const newQty = Math.max(1, item.quantity + delta);
+        let newQty = item.quantity + delta;
+        
+        if (newQty > item.stockQuantity) {
+          newQty = item.stockQuantity;
+          setScanError(`STOCK LIMIT: ${item.name}`);
+          setTimeout(() => setScanError(null), 2000);
+        }
+        
+        newQty = Math.max(1, newQty);
         return { ...item, quantity: newQty };
       }
       return item;
@@ -433,13 +446,22 @@ export default function POS() {
                        {data.editingId === item.id ? (
                          <input 
                            type="number"
+                           min="1"
+                           max={item.stockQuantity}
                            autoFocus
-                           className="win-input w-8 h-6 text-[10px] font-black text-blue-700 text-center p-0"
+                           className={cn(
+                             "win-input w-8 h-6 text-[10px] font-black text-center p-0",
+                             item.quantity >= item.stockQuantity ? "text-red-700" : "text-blue-700"
+                           )}
                            value={item.quantity}
                            onChange={(e) => {
                              const val = parseInt(e.target.value);
                              if (!isNaN(val) && val > 0) {
-                               data.updateCart(prev => prev.map(i => i.id === item.id ? { ...i, quantity: val } : i));
+                               const finalVal = Math.min(val, item.stockQuantity);
+                               if (val > item.stockQuantity) {
+                                  // Feedback? Maybe just cap it
+                               }
+                               data.updateCart(prev => prev.map(i => i.id === item.id ? { ...i, quantity: finalVal } : i));
                              }
                            }}
                            onBlur={() => data.setEditingId(null)}
@@ -454,7 +476,10 @@ export default function POS() {
                        ) : (
                          <button
                            onClick={() => data.setEditingId(item.id)}
-                           className="win-button min-w-8 h-6 px-1 text-[10px] font-black text-blue-700 flex items-center justify-center hover:bg-blue-100 transition-colors"
+                           className={cn(
+                             "win-button min-w-8 h-6 px-1 text-[10px] font-black flex items-center justify-center hover:bg-blue-100 transition-colors",
+                             item.quantity >= item.stockQuantity ? "text-red-700" : "text-blue-700"
+                           )}
                          >
                            {item.quantity}
                          </button>
@@ -462,8 +487,12 @@ export default function POS() {
                      </div>
 
                      <button 
+                       disabled={item.quantity >= item.stockQuantity}
                        onClick={() => data.onUpdate(item.id, 1)} 
-                       className="win-button w-6 h-6 flex items-center justify-center"
+                       className={cn(
+                         "win-button w-6 h-6 flex items-center justify-center",
+                         item.quantity >= item.stockQuantity && "opacity-30 cursor-not-allowed"
+                       )}
                      >
                        <Plus className="w-2.5 h-2.5" />
                      </button>
@@ -617,21 +646,46 @@ export default function POS() {
                 <Monitor className="w-3.5 h-3.5" />
                 <span className="text-[10px] font-black uppercase tracking-widest mr-1">Visual_Catalog_System</span>
                 
-                <div className={cn(
-                  "flex items-center gap-1 px-2 py-0.5 win-inset text-[8px] font-black uppercase transition-colors duration-500",
-                  isOnline 
-                    ? "bg-green-100 text-green-800" 
-                    : "bg-amber-100 text-amber-800"
-                )}>
-                  {isOnline ? <Cloud className="w-2.5 h-2.5" /> : <CloudOff className="w-2.5 h-2.5" />}
-                  <span className="hidden sm:inline">{isOnline ? 'Online' : 'Offline'}</span>
-                  {pendingSyncCount > 0 && (
-                    <div className="flex items-center gap-1 ml-1 pl-1 border-l border-current">
-                       <Database className="w-2.5 h-2.5" />
-                       <span className={cn(isSyncing && "animate-pulse")}>{pendingSyncCount}</span>
-                    </div>
+                <div 
+                  className={cn(
+                    "flex items-center gap-1 px-2 py-0.5 win-inset text-[8px] font-black uppercase transition-all duration-500",
+                    isOnline 
+                      ? (syncError ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800")
+                      : "bg-amber-100 text-amber-800"
                   )}
-                  {isSyncing && <RefreshCw className="w-2.5 h-2.5 animate-spin ml-0.5" />}
+                  title={syncError ? `Sync Error: ${syncError}` : (lastSyncTime ? `Last sync: ${lastSyncTime}` : 'Offline Mode Active')}
+                >
+                  {isOnline ? (
+                    syncError ? <Database className="w-2.5 h-2.5" /> : <Cloud className="w-2.5 h-2.5" />
+                  ) : (
+                    <CloudOff className="w-2.5 h-2.5" />
+                  )}
+                  
+                  <span className="hidden sm:inline">
+                    {isOnline ? (syncError ? 'Sync_Error' : 'Online') : 'Offline'}
+                  </span>
+
+                  {(pendingSyncCount > 0 || isSyncing) && (
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        syncPendingSales();
+                      }}
+                      disabled={isSyncing || !isOnline}
+                      className={cn(
+                        "flex items-center gap-1 ml-1 pl-1 border-l border-current hover:bg-black/5 px-1 rounded-sm transition-colors",
+                        isSyncing && "animate-pulse"
+                      )}
+                    >
+                       <Database className="w-2.5 h-2.5" />
+                       <span>{pendingSyncCount > 0 ? pendingSyncCount : '0'}</span>
+                       {isSyncing ? (
+                         <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                       ) : (
+                         isOnline && pendingSyncCount > 0 && <span className="text-[6px] opacity-60 ml-0.5">Sync?</span>
+                       )}
+                    </button>
+                  )}
                 </div>
              </div>
              <button 
@@ -680,25 +734,20 @@ export default function POS() {
                       <span className="text-[12px] font-black text-[var(--color-win-blue)] leading-none italic">₱ 8,420.00</span>
                    </div>
                    <button 
-                     onClick={generateMissingImages}
-                     className="win-button h-9 w-9 flex items-center justify-center text-amber-600"
-                     title="Magic Image: Auto-assign placeholder images"
-                   >
-                      <Image className="w-4 h-4" />
-                   </button>
-                   <button 
                      onClick={() => setIsScannerOpen(true)}
-                     className="win-button h-9 w-9 flex items-center justify-center"
+                     className="win-button h-9 px-3 flex items-center justify-center gap-2"
                      title="Camera Scanner"
                    >
                       <Scan className="w-4 h-4" />
+                      <span className="text-[10px] font-black uppercase italic">Scan</span>
                    </button>
                    <button 
                      onClick={() => setIsHotspotOpen(true)}
-                     className="win-button h-9 w-9 flex items-center justify-center text-blue-700"
+                     className="win-button h-9 px-3 flex items-center justify-center gap-2 text-blue-700"
                      title="Remote Scanner Hotspot"
                    >
                       <Wifi className="w-4 h-4" />
+                      <span className="text-[10px] font-black uppercase italic">Link</span>
                    </button>
                 </div>
              </div>
