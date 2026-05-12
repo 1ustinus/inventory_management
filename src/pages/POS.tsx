@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Search, 
+  Image,
   Minus, 
   Plus, 
   Trash2, 
@@ -15,15 +16,28 @@ import {
   ShoppingCart,
   Package,
   Terminal,
-  Monitor
+  Monitor,
+  Wifi,
+  Smartphone,
+  Cloud,
+  CloudOff,
+  RefreshCw,
+  Database,
+  ChevronUp,
+  ChevronDown,
+  GripVertical
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, Reorder } from 'motion/react';
+import * as ReactWindow from 'react-window';
+import { AutoSizer as VirtualAutoSizer } from 'react-virtualized-auto-sizer';
 import { localDb, STORAGE_KEYS } from '../lib/localDb';
 import { Product, CartItem, PaymentMethod, Sale, User } from '../types';
 import { formatCurrency, generateBarcode, cn } from '../lib/utils';
 import { CATEGORIES, TAX_RATE } from '../constants';
 import PaymentModal from '../components/PaymentModal';
 import Receipt from '../components/Receipt';
+import ScannerModal from '../components/ScannerModal';
+import HotspotModal from '../components/HotspotModal';
 import { hasPermission } from '../lib/permissions';
 import { Shield } from 'lucide-react';
 
@@ -33,29 +47,155 @@ export default function POS() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isHotspotOpen, setIsHotspotOpen] = useState(false);
+  const [lastScannedId, setLastScannedId] = useState<string | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [stationId] = useState(() => Math.random().toString(36).substring(2, 8).toUpperCase());
   const [discountType, setDiscountType] = useState<'none' | 'senior' | 'pwd'>('none');
   const [lastSale, setLastSale] = useState<any>(null);
   const [isCartVisible, setIsCartVisible] = useState(window.innerWidth > 768);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [pendingSyncCount, setPendingSyncCount] = useState(0);
+  const [editingQtyId, setEditingQtyId] = useState<string | null>(null);
 
   const scanInputRef = useRef<HTMLInputElement>(null);
+
+  const updatePendingCount = () => {
+    const allSales = localDb.getAll<Sale>(STORAGE_KEYS.SALES);
+    const pending = allSales.filter(s => !s.isSynced).length;
+    setPendingSyncCount(pending);
+  };
+
+  const syncPendingSales = async () => {
+    if (!navigator.onLine || isSyncing) return;
+    
+    const allSales = localDb.getAll<Sale>(STORAGE_KEYS.SALES);
+    const pendingSales = allSales.filter(s => !s.isSynced);
+    
+    if (pendingSales.length === 0) return;
+
+    try {
+      setIsSyncing(true);
+      const response = await fetch('/api/sync/sales', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sales: pendingSales })
+      });
+
+      if (response.ok) {
+        // Mark as synced in local DB
+        pendingSales.forEach(sale => {
+          localDb.update<Sale>(STORAGE_KEYS.SALES, sale.id, { isSynced: true });
+        });
+        updatePendingCount();
+      }
+    } catch (err) {
+      console.error('Sync failed:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   useEffect(() => {
     const authData = localStorage.getItem('flexi-auth');
     if (authData) setCurrentUser(JSON.parse(authData));
 
     const handleResize = () => setWindowWidth(window.innerWidth);
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
     window.addEventListener('resize', handleResize);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Shortcut: Ctrl + K (or Meta + K) to focus search/scanner
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        scanInputRef.current?.focus();
+        scanInputRef.current?.select();
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('keydown', handleKeyDown);
     fetchProducts();
     window.addEventListener('storage_update', fetchProducts);
+    
+    updatePendingCount();
+
     return () => {
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('storage_update', fetchProducts);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
   }, []);
 
+  useEffect(() => {
+    if (isOnline) {
+      syncPendingSales();
+    }
+  }, [isOnline]);
+
+  // Remote Scanner Polling
+  useEffect(() => {
+    let polling = true;
+    const poll = async () => {
+      if (!polling) return;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      try {
+        const res = await fetch(`/api/station/${stationId}/poll`, { signal: controller.signal });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.barcode) {
+            processScan(data.barcode);
+          }
+        }
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          console.error('Polling error:', err.message || err);
+        }
+      } finally {
+        clearTimeout(timeoutId);
+        if (polling) setTimeout(poll, 3000);
+      }
+    };
+    poll();
+    return () => { polling = false; };
+  }, [stationId]);
+
   const canAccess = hasPermission(currentUser, 'pos:access');
+
+  const processScan = (barcode: string) => {
+    const product = products.find(p => p.barcode === barcode || p.sku === barcode);
+    if (product) {
+      addToCart(product);
+      setLastScannedId(product.id);
+      setScanError(null);
+      
+      // Auto-focus quantity input for the newly added/updated item
+      setTimeout(() => {
+        const qtyInput = document.querySelector(`[data-qty-input="${product.id}"]`) as HTMLInputElement;
+        if (qtyInput) {
+          qtyInput.focus();
+        }
+      }, 50);
+
+      // Clear highlight after 2 seconds
+      setTimeout(() => setLastScannedId(null), 2000);
+      return true;
+    }
+    setScanError(`NOT_FOUND: ${barcode}`);
+    setTimeout(() => setScanError(null), 3000);
+    return false;
+  };
 
   if (!canAccess && currentUser) {
     return (
@@ -96,6 +236,26 @@ export default function POS() {
     setProducts(data.filter(p => p.stockQuantity > 0));
   };
 
+  const generateMissingImages = () => {
+    const allProducts = localDb.getAll<Product>(STORAGE_KEYS.PRODUCTS);
+    let updatedCount = 0;
+    
+    allProducts.forEach(p => {
+      if (!p.imageUrl) {
+        localDb.update<Product>(STORAGE_KEYS.PRODUCTS, p.id, {
+          imageUrl: `https://picsum.photos/seed/${p.id}/400/400`,
+          updatedAt: new Date().toISOString()
+        });
+        updatedCount++;
+      }
+    });
+
+    if (updatedCount > 0) {
+      fetchProducts();
+      window.dispatchEvent(new Event('storage_update'));
+    }
+  };
+
   const addToCart = (product: Product) => {
     setCart(prev => {
       const existing = prev.find(item => item.id === product.id);
@@ -125,11 +285,15 @@ export default function POS() {
   const handleBarcodeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const barcode = searchQuery.trim();
-    const product = products.find(p => p.barcode === barcode || p.sku === barcode);
-    if (product) {
-      addToCart(product);
+    if (!barcode) return;
+
+    if (processScan(barcode)) {
       setSearchQuery('');
+    } else {
+      // Keep search query if not found to allow text search results to remain
     }
+    
+    scanInputRef.current?.focus();
   };
 
   const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
@@ -152,11 +316,13 @@ export default function POS() {
       amountReceived,
       change: amountReceived - total,
       status: 'completed',
+      isSynced: false,
       createdAt: new Date().toISOString()
     };
 
     try {
       localDb.add<Sale>(STORAGE_KEYS.SALES, saleData);
+      updatePendingCount();
       
       // Update inventory stock
       for (const item of cart) {
@@ -173,6 +339,11 @@ export default function POS() {
       setCart([]);
       setDiscountType('none');
       fetchProducts();
+      
+      // Attempt immediate sync if online
+      if (isOnline) {
+        syncPendingSales();
+      }
     } catch (error) {
       console.error('Sale error:', error);
     }
@@ -184,231 +355,436 @@ export default function POS() {
     return matchesSearch && matchesCategory;
   });
 
+  // Move item in cart
+  const moveCartItem = (index: number, direction: 'up' | 'down') => {
+    const newIndex = direction === 'up' ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= cart.length) return;
+    
+    const newCart = [...cart];
+    const item = newCart[index];
+    newCart.splice(index, 1);
+    newCart.splice(newIndex, 0, item);
+    setCart(newCart);
+  };
+
+  const CartRow = React.memo(({ index, style, data }: { index: number; style: React.CSSProperties; data: { items: CartItem[]; onRemove: (id: string) => void; onUpdate: (id: string, d: number) => void; onMove: (idx: number, dir: 'up' | 'down') => void; editingId: string | null; setEditingId: (id: string | null) => void; lastId: string | null; scanRef: React.RefObject<HTMLInputElement>; updateCart: React.Dispatch<React.SetStateAction<CartItem[]>> } }) => {
+    const item = data.items[index];
+    if (!item) return null;
+
+    return (
+      <div style={style} className="px-1 py-0.5">
+        <div
+          className={cn(
+            "px-2 py-2 flex items-center gap-2 border border-gray-100 win-outset bg-white group font-bold italic transition-all duration-300 h-full",
+            item.id === data.lastId ? "bg-green-50 ring-2 ring-green-500 ring-inset" : "hover:bg-blue-50"
+          )}
+        >
+          <div className="flex flex-col gap-1 pr-1 border-r border-gray-100">
+             <button 
+               disabled={index === 0}
+               onClick={() => data.onMove(index, 'up')}
+               className="p-0.5 text-gray-400 hover:text-blue-600 disabled:opacity-20 translate-y-1"
+             >
+               <ChevronUp className="w-3 h-3" />
+             </button>
+             <button 
+               disabled={index === data.items.length - 1}
+               onClick={() => data.onMove(index, 'down')}
+               className="p-0.5 text-gray-400 hover:text-blue-600 disabled:opacity-20 -translate-y-1"
+             >
+               <ChevronDown className="w-3 h-3" />
+             </button>
+          </div>
+
+          <div className="w-10 h-10 win-outset bg-white rounded flex-shrink-0 flex items-center justify-center overflow-hidden relative">
+             {item.imageUrl ? (
+               <img 
+                src={item.imageUrl} 
+                alt="" 
+                className="w-full h-full object-cover grayscale-[20%] group-hover:grayscale-0 transition-all duration-300" 
+               />
+             ) : (
+               <Package className="w-6 h-6 text-gray-200" />
+             )}
+             {item.stockQuantity < (item.minStockLevel || 5) && (
+               <div className="absolute top-0 right-0 w-2 h-2 bg-red-600 rounded-full border border-white" />
+             )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex justify-between items-start">
+              <h4 className="text-[10px] truncate uppercase text-[var(--color-win-text)]">{item.name}</h4>
+              <button 
+                onClick={() => data.onRemove(item.id)}
+                className="text-gray-400 hover:text-red-700 p-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="flex items-center justify-between mt-0.5">
+                  <div className="flex items-center gap-1">
+                     <button 
+                       onClick={() => data.onUpdate(item.id, -1)} 
+                       className="win-button w-6 h-6 flex items-center justify-center"
+                     >
+                       <Minus className="w-2.5 h-2.5" />
+                     </button>
+                     
+                     <div className="relative">
+                       {data.editingId === item.id ? (
+                         <input 
+                           type="number"
+                           autoFocus
+                           className="win-input w-8 h-6 text-[10px] font-black text-blue-700 text-center p-0"
+                           value={item.quantity}
+                           onChange={(e) => {
+                             const val = parseInt(e.target.value);
+                             if (!isNaN(val) && val > 0) {
+                               data.updateCart(prev => prev.map(i => i.id === item.id ? { ...i, quantity: val } : i));
+                             }
+                           }}
+                           onBlur={() => data.setEditingId(null)}
+                           onFocus={(e) => e.target.select()}
+                           onKeyDown={(e) => {
+                             if (e.key === 'Enter') {
+                               data.setEditingId(null);
+                               data.scanRef.current?.focus();
+                             }
+                           }}
+                         />
+                       ) : (
+                         <button
+                           onClick={() => data.setEditingId(item.id)}
+                           className="win-button min-w-8 h-6 px-1 text-[10px] font-black text-blue-700 flex items-center justify-center hover:bg-blue-100 transition-colors"
+                         >
+                           {item.quantity}
+                         </button>
+                        )}
+                     </div>
+
+                     <button 
+                       onClick={() => data.onUpdate(item.id, 1)} 
+                       className="win-button w-6 h-6 flex items-center justify-center"
+                     >
+                       <Plus className="w-2.5 h-2.5" />
+                     </button>
+                  </div>
+              <span className="font-bold text-[10px] text-gray-800">{formatCurrency(item.price * item.quantity)}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  });
+
+  const cartItemData = React.useMemo(() => ({
+    items: cart,
+    onRemove: removeFromCart,
+    onUpdate: updateQuantity,
+    onMove: moveCartItem,
+    editingId: editingQtyId,
+    setEditingId: setEditingQtyId,
+    lastId: lastScannedId,
+    scanRef: scanInputRef,
+    updateCart: setCart
+  }), [cart, editingQtyId, lastScannedId]);
+
+  const FixedSizeList = (ReactWindow as any).FixedSizeList;
+  const AutoSizer = VirtualAutoSizer as any;
+
   return (
-    <div className="h-full min-h-0 flex overflow-hidden bg-[var(--color-win-bg)] p-2 gap-2 relative">
+    <div className="h-full min-h-0 flex flex-col md:flex-row overflow-hidden bg-[var(--color-win-bg)] p-1 md:p-2 gap-1 md:gap-2 relative">
       {/* Sidebar: Cart Area */}
       <AnimatePresence>
         {isCartVisible && (
           <motion.div 
-            initial={{ width: 0, opacity: 0, x: -50 }}
+            initial={{ x: windowWidth < 768 ? '100%' : -100, opacity: 0 }}
             animate={{ 
-              width: windowWidth < 768 ? '100%' : (windowWidth < 1200 ? 350 : 450), 
+              width: windowWidth < 768 ? '100%' : (windowWidth < 1200 ? 320 : 400), 
               opacity: 1, 
               x: 0,
-              position: windowWidth < 768 ? 'absolute' : 'relative',
-              zIndex: windowWidth < 768 ? 60 : 1,
-              height: windowWidth < 768 ? '100%' : 'auto',
+              position: windowWidth < 768 ? 'fixed' : 'relative',
+              zIndex: windowWidth < 768 ? 100 : 1,
+              height: '100%',
               top: 0,
-              left: 0
+              right: 0,
             }}
-            exit={{ width: 0, opacity: 0, x: -50 }}
+            exit={{ x: windowWidth < 768 ? '100%' : -100, opacity: 0 }}
             className="win-outset flex flex-col bg-[var(--color-win-bg)] p-1 shrink-0 overflow-hidden shadow-2xl md:shadow-none"
           >
-            <div className="win-header flex justify-between items-center px-2 py-1 mb-1">
+            <div className="win-header sticky top-0 z-10 flex justify-between items-center px-2 py-1.5 mb-1 shadow-sm">
                <div className="flex items-center gap-2">
-                 <Terminal className="w-3.5 h-3.5" />
-                 <span className="font-bold text-[11px] uppercase">Transaction Terminal_01</span>
+                 <ShoppingCart className="w-3.5 h-3.5" />
+                 <span className="font-bold text-[11px] uppercase tracking-tighter">Register_Output</span>
                </div>
                <div className="flex items-center gap-2">
-                 <span className="bg-white/20 px-1.5 py-0.5 win-inset text-[9px] font-bold uppercase">{cart.length} UNITS</span>
-                 <button onClick={() => setIsCartVisible(false)} className="md:hidden win-button p-0.5 h-5 w-5 flex items-center justify-center">X</button>
+                 <span className="bg-white/20 px-1.5 py-0.5 win-inset text-[9px] font-bold uppercase">{cart.length} ITEMS</span>
+                 <button 
+                  onClick={() => setIsCartVisible(false)} 
+                  className="win-button p-0.5 h-6 w-6 flex items-center justify-center font-black text-xs"
+                 >X</button>
                </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-2 space-y-1 win-inset bg-white custom-scrollbar">
-              {cart.map((item) => (
-                <div
-                  key={item.id}
-                  className="px-2 py-1 flex items-center gap-2 border-b border-gray-100 hover:bg-blue-50 group font-bold italic"
-                >
-                  <div className="w-8 h-8 win-outset bg-white rounded flex-shrink-0 flex items-center justify-center">
-                     <Package className="w-5 h-5 text-gray-400 opacity-40" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-start">
-                      <h4 className="text-[11px] truncate uppercase text-[var(--color-win-text)]">{item.name}</h4>
-                      <button 
-                        onClick={() => removeFromCart(item.id)}
-                        className="text-gray-400 hover:text-red-700"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                    <div className="flex items-center justify-between text-[10px]">
-                      <div className="flex items-center gap-2">
-                         <button onClick={() => updateQuantity(item.id, -1)} className="win-button p-1 md:p-1.5"><Minus className="w-3 h-3" /></button>
-                         <span className="text-[11px] font-black text-blue-700 w-4 text-center">{item.quantity}</span>
-                         <button onClick={() => updateQuantity(item.id, 1)} className="win-button p-1 md:p-1.5"><Plus className="w-3 h-3" /></button>
-                      </div>
-                      <span className="font-bold text-gray-800">{formatCurrency(item.price * item.quantity)}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-              
-              {cart.length === 0 && (
-                <div className="h-full flex flex-col items-center justify-center text-gray-400 p-10 text-center uppercase tracking-widest font-black italic">
-                  <ShoppingCart className="w-12 h-12 mb-4 opacity-10" />
-                  <p className="text-[10px] opacity-40">No Units Logged</p>
+            <div className="flex-1 win-inset bg-white custom-scrollbar overflow-hidden relative">
+              {cart.length > 0 ? (
+                <AutoSizer>
+                  {({ height, width }: any) => (
+                    <FixedSizeList
+                      height={height}
+                      width={width}
+                      itemCount={cart.length}
+                      itemSize={72}
+                      itemData={cartItemData}
+                      className="custom-scrollbar"
+                    >
+                      {CartRow}
+                    </FixedSizeList>
+                  )}
+                </AutoSizer>
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-gray-400 p-6 opacity-30 text-center uppercase font-black italic">
+                  <ShoppingCart className="w-12 h-12 mb-4" />
+                  <p className="text-[10px] tracking-[0.2em]">Scanner Standing By...</p>
                 </div>
               )}
             </div>
 
             {/* Totals & Actions */}
-            <div className="p-3 bg-[var(--color-win-bg)] space-y-3 mt-1 win-outset mt-auto">
-                <div className="grid grid-cols-3 gap-1">
+            <div className="p-3 bg-[var(--color-win-bg)] space-y-3 mt-auto win-outset sticky bottom-0 z-10 border-t border-[var(--color-win-dark)]/10 shadow-sm">
+                <div className="grid grid-cols-3 gap-1.5">
                    <button 
                      onClick={() => setDiscountType(prev => prev === 'senior' ? 'none' : 'senior')}
                      className={cn(
-                       "win-button text-[9px] font-black py-1",
-                       discountType === 'senior' && "bg-white/50 text-[var(--color-win-blue)]"
+                       "win-button text-[9px] font-black py-2",
+                       discountType === 'senior' && "bg-white/50 text-[var(--color-win-blue)] shadow-inner"
                      )}
                    >
-                     SENIOR [S]
+                     SENIOR
                    </button>
                    <button 
                      onClick={() => setDiscountType(prev => prev === 'pwd' ? 'none' : 'pwd')}
                      className={cn(
-                       "win-button text-[9px] font-black py-1",
-                       discountType === 'pwd' && "bg-white/50 text-[var(--color-win-blue)]"
+                       "win-button text-[9px] font-black py-2",
+                       discountType === 'pwd' && "bg-white/50 text-[var(--color-win-blue)] shadow-inner"
                      )}
                    >
-                     PWD [P]
+                     PWD
                    </button>
-                   <button onClick={() => setCart([])} className="win-button p-1 flex items-center justify-center text-red-700">
-                      <RotateCcw className="w-3.5 h-3.5" />
+                   <button onClick={() => { if(confirm('Wipe register state?')) setCart([]); }} className="win-button p-2 flex items-center justify-center text-red-700">
+                      <RotateCcw className="w-4 h-4" />
                    </button>
                 </div>
 
-                <div className="space-y-1 text-[11px] font-bold border-2 border-dotted border-[var(--color-win-dark)] p-2 bg-white/30 italic">
-                  <div className="flex justify-between text-gray-800">
-                    <span>SUBTOTAL</span>
+                <div className="space-y-1 text-[11px] font-bold border-2 border-dotted border-[var(--color-win-dark)] p-3 bg-white/40 italic">
+                  <div className="flex justify-between text-gray-700">
+                    <span>INDEX_SUBTOTAL</span>
                     <span>{formatCurrency(subtotal)}</span>
                   </div>
-                  <div className="flex justify-between text-gray-800">
-                    <span>VAT-EXEMPT</span>
+                  <div className="flex justify-between text-gray-700">
+                    <span>TAX_SURCHARGE</span>
                     <span>{formatCurrency(tax)}</span>
                   </div>
                   {discount > 0 && (
-                    <div className="flex justify-between text-[var(--color-win-blue)]">
-                      <span>DISCOUNTED</span>
+                    <div className="flex justify-between text-[var(--color-win-blue)] border-t border-blue-900/20 pt-1">
+                      <span>APPLIED_REDUCTION</span>
                       <span>-{formatCurrency(discount)}</span>
                     </div>
                   )}
-                  <div className="flex justify-between items-center pt-1 border-t border-[var(--color-win-dark)]">
-                    <span className="text-[10px] font-black text-[var(--color-win-text)]">PAYABLE:</span>
-                    <span className="text-2xl font-black text-[var(--color-win-blue)] tracking-tighter italic">₱{total.toLocaleString()}</span>
+                  <div className="flex justify-between items-center pt-2 border-t-2 border-[var(--color-win-dark)]">
+                    <span className="text-[10px] font-black text-[var(--color-win-text)] tracking-wider">PAYABLE_TOTAL:</span>
+                    <span className="text-2xl font-black text-[var(--color-win-blue)] tracking-tighter">₱{total.toLocaleString()}</span>
                   </div>
                 </div>
 
                 <button
                   disabled={cart.length === 0}
                   onClick={() => setIsPaymentModalOpen(true)}
-                  className="win-button w-full py-4 text-[var(--color-win-blue)] disabled:text-gray-400 font-bold text-sm flex items-center justify-center gap-2 uppercase tracking-widest border-2 underline"
+                  className="win-button w-full py-4 text-[var(--color-win-blue)] disabled:text-gray-400 font-black text-sm flex items-center justify-center gap-3 uppercase tracking-[0.2em] border-2 shadow-lg"
                 >
-                  <CreditCard className="w-5 h-5" /> COMPLETE SETTLEMENT
+                  <CreditCard className="w-5 h-5" /> CHECKOUT
                 </button>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Toggle Cart Button */}
-      {!isCartVisible && (
-        <button 
-          onClick={() => setIsCartVisible(true)}
-          className="absolute left-4 bottom-4 z-50 win-button p-3 rounded-full bg-[var(--color-win-blue)] text-white shadow-xl hover:scale-110 transition-all"
-          title="Open Register"
-        >
-          <ShoppingCart className="w-6 h-6" />
-          {cart.length > 0 && <span className="absolute -top-1 -right-1 bg-red-600 text-[10px] w-5 h-5 flex items-center justify-center rounded-full border-2 border-white">{cart.length}</span>}
-        </button>
-      )}
-
       {/* Main Area: Search and Products */}
-      <div className="flex-1 flex flex-col gap-2 transition-all duration-300 min-w-0 pr-0 md:pr-2">
-        <div className="win-outset bg-[var(--color-win-bg)] p-1 shrink-0">
-          <div className="win-header mb-1 px-2 py-1 flex justify-between items-center">
+      <div className="flex-1 flex flex-col min-w-0 h-full">
+        {/* Responsive Header */}
+        <div className="win-outset bg-[var(--color-win-bg)] p-1 pb-2 shrink-0 mb-1">
+          <div className="win-header mb-1 px-2 py-1.5 flex justify-between items-center">
              <div className="flex items-center gap-2">
                 <Monitor className="w-3.5 h-3.5" />
-                <span className="text-[11px] font-bold">Catalog Visualization System</span>
+                <span className="text-[10px] font-black uppercase tracking-widest mr-1">Visual_Catalog_System</span>
+                
+                <div className={cn(
+                  "flex items-center gap-1 px-2 py-0.5 win-inset text-[8px] font-black uppercase transition-colors duration-500",
+                  isOnline 
+                    ? "bg-green-100 text-green-800" 
+                    : "bg-amber-100 text-amber-800"
+                )}>
+                  {isOnline ? <Cloud className="w-2.5 h-2.5" /> : <CloudOff className="w-2.5 h-2.5" />}
+                  <span className="hidden sm:inline">{isOnline ? 'Online' : 'Offline'}</span>
+                  {pendingSyncCount > 0 && (
+                    <div className="flex items-center gap-1 ml-1 pl-1 border-l border-current">
+                       <Database className="w-2.5 h-2.5" />
+                       <span className={cn(isSyncing && "animate-pulse")}>{pendingSyncCount}</span>
+                    </div>
+                  )}
+                  {isSyncing && <RefreshCw className="w-2.5 h-2.5 animate-spin ml-0.5" />}
+                </div>
              </div>
              <button 
               onClick={() => setIsCartVisible(!isCartVisible)}
-              className="win-button px-2 py-0.5 text-[9px] font-bold uppercase flex items-center gap-1"
+              className="win-button px-2 py-0.5 text-[9px] font-black uppercase flex items-center gap-1 whitespace-nowrap"
              >
-                {isCartVisible ? 'Maximize display' : 'Restore layout'}
+                <ShoppingCart className="w-3 h-3" />
+                <span className="hidden sm:inline">Toggle View</span>
+                {cart.length > 0 && <span className="bg-[var(--color-win-blue)] text-white px-1 ml-1">{cart.length}</span>}
              </button>
           </div>
           
-          <div className="flex gap-2 px-2 pb-1">
-             <form onSubmit={handleBarcodeSubmit} className="flex-1 relative">
-                <input
-                  ref={scanInputRef}
-                  type="text"
-                  placeholder="Scan Barcode or Search Index..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="win-input w-full h-8 pl-9 text-[11px] font-bold"
-                />
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-             </form>
-             <div className="hidden md:flex gap-1">
-                <div className="win-inset bg-white/40 px-3 flex flex-col justify-center items-center min-w-[80px]">
-                   <span className="text-[7px] font-black text-gray-700 uppercase">Rev_Shift</span>
-                   <span className="text-[10px] font-black text-[var(--color-win-blue)] tracking-tight italic">₱ 8,420.00</span>
+          <div className="px-2 space-y-2">
+             <div className="flex flex-col sm:flex-row gap-2">
+                <form onSubmit={handleBarcodeSubmit} className="flex-1 relative">
+                   <input
+                     ref={scanInputRef}
+                     type="text"
+                     placeholder="Scan Barcode / Search Item... (Ctrl+K)"
+                     value={searchQuery}
+                     onChange={(e) => setSearchQuery(e.target.value)}
+                     className={cn(
+                       "win-input w-full h-9 pl-10 text-[12px] font-bold transition-all",
+                       scanError && "border-red-600 bg-red-50"
+                     )}
+                   />
+                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                   <AnimatePresence>
+                     {scanError && (
+                       <motion.div 
+                         initial={{ opacity: 0, y: 5 }}
+                         animate={{ opacity: 1, y: 0 }}
+                         exit={{ opacity: 0 }}
+                         className="absolute -bottom-5 left-0 right-0 text-center z-10"
+                       >
+                         <span className="bg-red-600 text-white text-[8px] font-black uppercase px-2 py-0.5 tracking-widest shadow-sm">
+                           {scanError}
+                         </span>
+                       </motion.div>
+                     )}
+                   </AnimatePresence>
+                </form>
+                <div className="flex gap-2">
+                   <div className="hidden sm:flex win-inset bg-white/40 px-3 flex flex-col justify-center items-center min-w-[100px] h-9">
+                      <span className="text-[7px] font-black text-gray-600 uppercase leading-none mb-0.5">CURRENT_REV</span>
+                      <span className="text-[12px] font-black text-[var(--color-win-blue)] leading-none italic">₱ 8,420.00</span>
+                   </div>
+                   <button 
+                     onClick={generateMissingImages}
+                     className="win-button h-9 w-9 flex items-center justify-center text-amber-600"
+                     title="Magic Image: Auto-assign placeholder images"
+                   >
+                      <Image className="w-4 h-4" />
+                   </button>
+                   <button 
+                     onClick={() => setIsScannerOpen(true)}
+                     className="win-button h-9 w-9 flex items-center justify-center"
+                     title="Camera Scanner"
+                   >
+                      <Scan className="w-4 h-4" />
+                   </button>
+                   <button 
+                     onClick={() => setIsHotspotOpen(true)}
+                     className="win-button h-9 w-9 flex items-center justify-center text-blue-700"
+                     title="Remote Scanner Hotspot"
+                   >
+                      <Wifi className="w-4 h-4" />
+                   </button>
                 </div>
              </div>
-          </div>
 
-          <div className="flex gap-1 overflow-x-auto px-2 pb-1 custom-scrollbar">
-            {['All', ...CATEGORIES.map(c => c.name)].map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={cn(
-                  "win-button px-3 py-0.5 text-[9px] font-black uppercase tracking-tight whitespace-nowrap",
-                  selectedCategory === cat && "bg-white/50 text-[var(--color-win-blue)] border-2 border-dotted"
-                )}
-              >
-                {cat}
-              </button>
-            ))}
+             <div className="flex gap-1 overflow-x-auto pb-1 custom-scrollbar scroll-smooth no-scrollbar">
+               {['All', ...CATEGORIES.map(c => c.name)].map((cat) => (
+                 <button
+                   key={cat}
+                   onClick={() => setSelectedCategory(cat)}
+                   className={cn(
+                     "win-button px-4 py-1.5 text-[9px] font-black uppercase tracking-tight whitespace-nowrap transition-all",
+                     selectedCategory === cat ? "bg-white text-[var(--color-win-blue)] border-2 border-dotted shadow-inner" : "opacity-70"
+                   )}
+                 >
+                   {cat}
+                 </button>
+               ))}
+             </div>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto win-inset bg-white p-2 custom-scrollbar">
-           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-2">
+        {/* Product Grid */}
+        <div className="flex-1 overflow-y-auto win-inset bg-white p-2 sm:p-3 custom-scrollbar">
+           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8 gap-2 sm:gap-3">
               {filteredProducts.map((product) => (
                 <button
                   key={product.id}
                   onClick={() => addToCart(product)}
-                  className="win-outset p-1.5 bg-[var(--color-win-bg)] hover:bg-blue-50 transition-all flex flex-col items-start text-left relative group active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                  className="win-outset p-1.5 sm:p-2 bg-[var(--color-win-bg)] hover:bg-blue-50 transition-all flex flex-col items-start text-left relative group active:scale-[0.98]"
                 >
-                  <div className="w-full aspect-square win-inset bg-white mb-1.5 overflow-hidden relative">
+                  <div className="w-full aspect-square win-inset bg-white mb-2 overflow-hidden relative">
                     {product.imageUrl ? (
-                      <img src={product.imageUrl} alt={product.name} className="w-full h-full object-contain grayscale-[20%] group-hover:grayscale-0 transition-all" />
+                      <img src={product.imageUrl} alt="" className="w-full h-full object-cover grayscale-[10%] group-hover:grayscale-0 transition-duration-300" />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-gray-200">
-                        <Package className="w-6 h-6 opacity-10" />
+                      <div className="w-full h-full flex items-center justify-center text-gray-100">
+                        <Package className="w-8 h-8 opacity-10" />
                       </div>
                     )}
                     {product.stockQuantity <= (product.minStockLevel || 10) && (
-                      <div className="absolute top-0.5 left-0.5 px-1 py-0 bg-red-100 border border-red-700 text-[6px] font-black text-red-700 uppercase">
-                        CRITICAL
+                      <div className="absolute top-0 right-0 px-1.5 py-0.5 bg-red-600 text-white text-[7px] font-black uppercase tracking-widest shadow-lg">
+                        LOW
                       </div>
                     )}
                   </div>
-                  <p className="text-[7px] font-black text-gray-700 uppercase mb-0.5 leading-none">{product.category}</p>
-                  <h4 className="text-[10px] font-black text-[var(--color-win-text)] uppercase line-clamp-2 mb-1 italic h-6 leading-tight">{product.name}</h4>
-                  <div className="w-full flex justify-between items-baseline mt-auto border-t border-[var(--color-win-dark)] pt-0.5">
-                    <p className="text-xs font-black text-[var(--color-win-blue)] italic">₱{product.price.toLocaleString()}</p>
-                    <p className="text-[7px] font-bold text-gray-700 uppercase">QTY:{product.stockQuantity}</p>
+                  <div className="w-full min-h-[40px]">
+                    <p className="text-[7px] font-black text-gray-500 uppercase mb-0.5 tracking-[0.1em]">{product.category}</p>
+                    <h4 className="text-[11px] font-black text-[var(--color-win-text)] uppercase line-clamp-2 leading-tight tracking-tighter italic">{product.name}</h4>
+                  </div>
+                  <div className="w-full flex justify-between items-end mt-2 pt-1 border-t border-gray-300">
+                    <p className="text-sm font-black text-[var(--color-win-blue)]">₱{product.price.toLocaleString()}</p>
+                    <p className={cn(
+                      "text-[8px] font-bold uppercase",
+                      product.stockQuantity < 5 ? "text-red-700" : "text-gray-500"
+                    )}>S:{product.stockQuantity}</p>
                   </div>
                 </button>
               ))}
            </div>
+           
+           {filteredProducts.length === 0 && (
+             <div className="h-full flex flex-col items-center justify-center py-20 text-gray-400 border-2 border-dotted">
+                <Search className="w-12 h-12 mb-4 opacity-5" />
+                <p className="text-xs font-black uppercase tracking-[0.3em]">No Catalog Hits</p>
+             </div>
+           )}
         </div>
+
+        {/* Mobile Quick Checkout Trigger */}
+        {!isCartVisible && cart.length > 0 && (
+          <motion.div 
+            initial={{ y: 50, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className="md:hidden p-3 bg-[var(--color-win-bg)] border-t-2 border-[var(--color-win-dark)] flex gap-2"
+          >
+             <button
+               onClick={() => setIsCartVisible(true)}
+               className="win-button flex-1 py-3 bg-[var(--color-win-blue)] text-white font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 shadow-xl"
+             >
+                <ShoppingCart className="w-5 h-5" /> View Register ({cart.length})
+             </button>
+             <div className="win-inset bg-white px-4 flex flex-col justify-center items-end min-w-[120px]">
+                <span className="text-[8px] font-black text-gray-500 uppercase">PAYABLE</span>
+                <span className="text-lg font-black text-[var(--color-win-blue)] leading-none italic">₱{total.toLocaleString()}</span>
+             </div>
+          </motion.div>
+        )}
       </div>
 
       <PaymentModal
@@ -416,6 +792,18 @@ export default function POS() {
         onClose={() => setIsPaymentModalOpen(false)}
         total={total}
         onConfirm={handlePayment}
+      />
+
+      <ScannerModal 
+        isOpen={isScannerOpen} 
+        onClose={() => setIsScannerOpen(false)} 
+        onScan={processScan} 
+      />
+
+      <HotspotModal 
+        isOpen={isHotspotOpen} 
+        onClose={() => setIsHotspotOpen(false)} 
+        stationId={stationId} 
       />
 
       <AnimatePresence>

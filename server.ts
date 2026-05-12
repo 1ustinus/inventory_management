@@ -11,10 +11,43 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(express.json());
+  
+  // In-memory buffer for remote scans
+  const stationScans = new Map<string, { barcode: string, timestamp: number }>();
 
   // API routes
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok", system: "FlexiMart POS" });
+  });
+
+  // Remote Scanning Endpoints
+  app.post("/api/station/:id/scan", (req, res) => {
+    const { id } = req.params;
+    const { barcode } = req.body;
+    console.log(`[SCAN] Station ${id}: ${barcode}`);
+    stationScans.set(id, { barcode, timestamp: Date.now() });
+    res.json({ success: true });
+  });
+
+  app.get("/api/station/:id/poll", (req, res) => {
+    const { id } = req.params;
+    const scan = stationScans.get(id);
+    
+    // Log occasionally to avoid spam but show activity
+    if (Math.random() > 0.95) console.log(`[POLL] Station ${id} active`);
+
+    // Return scan if it's less than 10 seconds old
+    if (scan && Date.now() - scan.timestamp < 10000) {
+      stationScans.delete(id);
+      return res.json({ barcode: scan.barcode });
+    }
+    res.json({ barcode: null });
+  });
+  
+  app.post("/api/sync/sales", (req, res) => {
+    const { sales } = req.body;
+    console.log(`[SYNC] Received ${sales?.length || 0} sales for backup.`);
+    res.json({ success: true, syncedCount: sales?.length || 0 });
   });
 
   // Vite middleware for development
@@ -32,9 +65,17 @@ async function startServer() {
     });
   }
 
+  // Global error handler
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('[SERVER ERR]', err);
+    res.status(500).json({ error: 'Internal Server Error' });
+  });
+
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
 
-startServer();
+startServer().catch(err => {
+  console.error("Critical server failure:", err);
+});

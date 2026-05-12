@@ -64,6 +64,7 @@ export interface Sale {
   amountReceived: number;
   change: number;
   status: 'completed' | 'voided';
+  isSynced?: boolean;
   createdAt: string;
 }
 

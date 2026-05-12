@@ -11,6 +11,11 @@
   --font-serif: "Times New Roman", Times, serif;
   --font-sans: "MS Sans Serif", "Tahoma", "Inter", sans-serif;
   --font-mono: "Courier New", Courier, monospace;
+
+  @keyframes scan {
+    0%, 100% { top: 0%; opacity: 0.2; }
+    50% { top: 100%; opacity: 1; }
+  }
 }
 
 @layer base {

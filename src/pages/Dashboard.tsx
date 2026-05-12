@@ -6,7 +6,9 @@ import {
   ShoppingCart, 
   AlertCircle,
   ArrowRight,
-  PhilippinePeso
+  PhilippinePeso,
+  X,
+  Package
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -17,9 +19,10 @@ import {
   Tooltip, 
   ResponsiveContainer
 } from 'recharts';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { localDb, STORAGE_KEYS } from '../lib/localDb';
 import { Sale, Product } from '../types';
+import { Link } from 'react-router-dom';
 
 const data = [
   { name: '06:00', sales: 4000 },
@@ -40,6 +43,14 @@ export default function Dashboard() {
   });
 
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
+  const [isAlertDismissed, setIsAlertDismissed] = useState(() => {
+    return sessionStorage.getItem('low_stock_alert_dismissed') === 'true';
+  });
+
+  const dismissAlert = () => {
+    setIsAlertDismissed(true);
+    sessionStorage.setItem('low_stock_alert_dismissed', 'true');
+  };
 
   useEffect(() => {
     const updateStats = () => {
@@ -81,6 +92,47 @@ export default function Dashboard() {
           </button>
         </div>
       </header>
+
+      {/* Low Stock Alert */}
+      <AnimatePresence>
+        {!isAlertDismissed && stats.lowStock > 5 && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="win-outset bg-amber-50 border-amber-200 p-4 flex items-center justify-between gap-4 shadow-lg mb-6 border-l-4 border-l-amber-500">
+               <div className="flex items-center gap-4">
+                  <div className="win-inset bg-amber-100 p-2">
+                     <AlertCircle className="w-6 h-6 text-amber-600" />
+                  </div>
+                  <div>
+                     <h4 className="text-sm font-black text-amber-900 uppercase tracking-widest leading-none mb-1">Critical Stock Warning</h4>
+                     <p className="text-[11px] font-bold text-amber-700 italic">
+                        The system has detected <span className="underline decoration-amber-500 decoration-2">{stats.lowStock} units</span> with depletion status above the safety threshold.
+                     </p>
+                  </div>
+               </div>
+               <div className="flex items-center gap-3">
+                  <Link 
+                    to="/inventory"
+                    className="win-button bg-amber-600 text-white px-4 py-2 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-amber-500 transition-colors"
+                  >
+                     Review Inventory <ArrowRight className="w-3 h-3" />
+                  </Link>
+                  <button 
+                    onClick={dismissAlert}
+                    className="win-button p-2 text-amber-900/50 hover:text-amber-900"
+                    title="Dismiss protocol"
+                  >
+                     <X className="w-4 h-4" />
+                  </button>
+               </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

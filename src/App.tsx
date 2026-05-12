@@ -16,6 +16,7 @@ import SalesHistory from './pages/SalesHistory';
 import Users from './pages/Users';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
+import RemoteScanner from './pages/RemoteScanner';
 import { seedInitialData } from './services/seedData';
 import { Package } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -165,7 +166,14 @@ function App() {
   }
 
   if (!user) {
-    return <LoginPage onLogin={handleLogin} />;
+    return (
+      <Router>
+        <Routes>
+          <Route path="/remote-scan/:stationId" element={<RemoteScanner />} />
+          <Route path="*" element={<LoginPage onLogin={handleLogin} />} />
+        </Routes>
+      </Router>
+    );
   }
 
   return (
@@ -200,6 +208,7 @@ function App() {
               <Route path="/users" element={<Users />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/remote-scan/:stationId" element={<RemoteScanner />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

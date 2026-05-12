@@ -221,7 +221,10 @@ export default function Inventory() {
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
                             key={p.id} 
-                            className="hover:bg-blue-50 group transition-all even:bg-gray-50/5"
+                            className={cn(
+                              "group transition-all even:bg-gray-50/5",
+                              isLow ? "bg-red-50/50 hover:bg-red-100/60 border-l-2 border-l-red-600" : "hover:bg-blue-50"
+                            )}
                           >
                             <td className="px-4 py-2 border-r border-gray-100">
                               <div className="flex items-center gap-3">
@@ -235,7 +238,10 @@ export default function Inventory() {
                                    )}
                                 </div>
                                 <div className="min-w-0">
-                                  <p className="font-black text-[var(--color-win-text)] uppercase truncate leading-none mb-0.5">{p.name}</p>
+                                  <div className="flex items-center gap-1.5 mb-0.5">
+                                    {isLow && <AlertTriangle className="w-3 h-3 text-red-600 shrink-0" />}
+                                    <p className="font-black text-[var(--color-win-text)] uppercase truncate leading-none">{p.name}</p>
+                                  </div>
                                   <p className="text-[9px] font-bold text-gray-600 uppercase tracking-tighter italic">{p.sku}</p>
                                 </div>
                               </div>
