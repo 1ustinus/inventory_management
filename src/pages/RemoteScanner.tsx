@@ -11,54 +11,62 @@ export default function RemoteScanner() {
   const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
-    const scanner = new Html5QrcodeScanner(
-      "remote-reader",
-      { 
-        fps: 15, 
-        qrbox: { width: 250, height: 150 },
-        aspectRatio: 1.0
-      },
-      false
-    );
+    let scanner: Html5QrcodeScanner | null = null;
+    
+    const initScanner = () => {
+      scanner = new Html5QrcodeScanner(
+        "remote-reader",
+        { 
+          fps: 15, 
+          qrbox: { width: 250, height: 150 },
+          aspectRatio: 1.0,
+          showTorchButtonIfSupported: true,
+          showZoomSliderIfSupported: true,
+        },
+        false
+      );
 
-    scanner.render(
-      async (decodedText) => {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 6000);
-        try {
-          setStatus('scanning');
-          const response = await fetch(`/api/station/${stationId}/scan`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ barcode: decodedText }),
-            signal: controller.signal
-          });
+      scanner.render(
+        async (decodedText) => {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 6000);
+          try {
+            setStatus('scanning');
+            const response = await fetch(`/api/station/${stationId}/scan`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ barcode: decodedText }),
+              signal: controller.signal
+            });
 
-          if (response.ok) {
-            setLastScan(decodedText);
-            setStatus('success');
-            setTimeout(() => setStatus('idle'), 2000);
-          } else {
-            throw new Error('Transmission Failure');
+            if (response.ok) {
+              setLastScan(decodedText);
+              setStatus('success');
+              setTimeout(() => setStatus('idle'), 2000);
+            } else {
+              throw new Error('Transmission Failure');
+            }
+          } catch (err: any) {
+            if (err.name === 'AbortError') {
+               console.warn('Scan transmission timed out');
+            }
+            setStatus('error');
+            setErrorMessage(err.message === 'Transmission Failure' ? 'LINK_FAILURE: DATA_NOT_SENT' : 'TIMEOUT_ERR: TRY_AGAIN');
+            setTimeout(() => setStatus('idle'), 3000);
+          } finally {
+            clearTimeout(timeoutId);
           }
-        } catch (err: any) {
-          if (err.name === 'AbortError') {
-             console.warn('Scan transmission timed out');
-          }
-          setStatus('error');
-          setErrorMessage(err.message === 'Transmission Failure' ? 'LINK_FAILURE: DATA_NOT_SENT' : 'TIMEOUT_ERR: TRY_AGAIN');
-          setTimeout(() => setStatus('idle'), 3000);
-        } finally {
-          clearTimeout(timeoutId);
-        }
-      },
-      (error) => {
-        // Ignored
-      }
-    );
+        },
+        () => {}
+      );
+    };
+
+    initScanner();
 
     return () => {
-      scanner.clear().catch(console.error);
+      if (scanner) {
+        scanner.clear().catch(console.error);
+      }
     };
   }, [stationId]);
 

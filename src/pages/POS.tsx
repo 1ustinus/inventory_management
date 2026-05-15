@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Search, 
   Minus, 
@@ -27,8 +27,6 @@ import {
   GripVertical
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
-import * as ReactWindow from 'react-window';
-import { AutoSizer as VirtualAutoSizer } from 'react-virtualized-auto-sizer';
 import { localDb, STORAGE_KEYS } from '../lib/localDb';
 import { Product, CartItem, PaymentMethod, Sale, User } from '../types';
 import { formatCurrency, generateBarcode, cn } from '../lib/utils';
@@ -48,6 +46,10 @@ export default function POS() {
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [isHotspotOpen, setIsHotspotOpen] = useState(false);
+
+  // Define toggle handlers to ensure stability
+  const toggleScanner = useCallback((val: boolean) => setIsScannerOpen(val), []);
+  const toggleHotspot = useCallback((val: boolean) => setIsHotspotOpen(val), []);
   const [lastScannedId, setLastScannedId] = useState<string | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
   const [stationId] = useState(() => Math.random().toString(36).substring(2, 8).toUpperCase());
@@ -62,6 +64,7 @@ export default function POS() {
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [editingQtyId, setEditingQtyId] = useState<string | null>(null);
+  const [customerName, setCustomerName] = useState('');
 
   const scanInputRef = useRef<HTMLInputElement>(null);
 
@@ -193,7 +196,7 @@ export default function POS() {
 
   const canAccess = hasPermission(currentUser, 'pos:access');
 
-  const processScan = (barcode: string) => {
+  const processScan = useCallback((barcode: string) => {
     const product = products.find(p => p.barcode === barcode || p.sku === barcode);
     if (product) {
       addToCart(product);
@@ -215,7 +218,7 @@ export default function POS() {
     setScanError(`NOT_FOUND: ${barcode}`);
     setTimeout(() => setScanError(null), 3000);
     return false;
-  };
+  }, [products]);
 
   if (!canAccess && currentUser) {
     return (
@@ -328,6 +331,7 @@ export default function POS() {
       paymentMethod: method,
       amountReceived,
       change: amountReceived - total,
+      customerName: customerName.trim() || undefined,
       status: 'completed',
       isSynced: false,
       createdAt: new Date().toISOString()
@@ -350,6 +354,7 @@ export default function POS() {
 
       setLastSale(saleData);
       setCart([]);
+      setCustomerName('');
       setDiscountType('none');
       fetchProducts();
       
@@ -379,146 +384,6 @@ export default function POS() {
     newCart.splice(newIndex, 0, item);
     setCart(newCart);
   };
-
-  const CartRow = React.memo(({ index, style, data }: { index: number; style: React.CSSProperties; data: { items: CartItem[]; onRemove: (id: string) => void; onUpdate: (id: string, d: number) => void; onMove: (idx: number, dir: 'up' | 'down') => void; editingId: string | null; setEditingId: (id: string | null) => void; lastId: string | null; scanRef: React.RefObject<HTMLInputElement>; updateCart: React.Dispatch<React.SetStateAction<CartItem[]>> } }) => {
-    const item = data.items[index];
-    if (!item) return null;
-
-    return (
-      <div style={style} className="px-1 py-0.5">
-        <div
-          className={cn(
-            "px-2 py-2 flex items-center gap-2 border border-gray-100 win-outset bg-white group font-bold italic transition-all duration-300 h-full",
-            item.id === data.lastId ? "bg-green-50 ring-2 ring-green-500 ring-inset" : "hover:bg-blue-50"
-          )}
-        >
-          <div className="flex flex-col gap-1 pr-1 border-r border-gray-100">
-             <button 
-               disabled={index === 0}
-               onClick={() => data.onMove(index, 'up')}
-               className="p-0.5 text-gray-400 hover:text-blue-600 disabled:opacity-20 translate-y-1"
-             >
-               <ChevronUp className="w-3 h-3" />
-             </button>
-             <button 
-               disabled={index === data.items.length - 1}
-               onClick={() => data.onMove(index, 'down')}
-               className="p-0.5 text-gray-400 hover:text-blue-600 disabled:opacity-20 -translate-y-1"
-             >
-               <ChevronDown className="w-3 h-3" />
-             </button>
-          </div>
-
-          <div className="w-10 h-10 win-outset bg-white rounded flex-shrink-0 flex items-center justify-center overflow-hidden relative">
-             {item.imageUrl ? (
-               <img 
-                src={item.imageUrl} 
-                alt="" 
-                className="w-full h-full object-cover grayscale-[20%] group-hover:grayscale-0 transition-all duration-300" 
-               />
-             ) : (
-               <Package className="w-6 h-6 text-gray-200" />
-             )}
-             {item.stockQuantity < (item.minStockLevel || 5) && (
-               <div className="absolute top-0 right-0 w-2 h-2 bg-red-600 rounded-full border border-white" />
-             )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex justify-between items-start">
-              <h4 className="text-[10px] truncate uppercase text-[var(--color-win-text)]">{item.name}</h4>
-              <button 
-                onClick={() => data.onRemove(item.id)}
-                className="text-gray-400 hover:text-red-700 p-1"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <div className="flex items-center justify-between mt-0.5">
-                  <div className="flex items-center gap-1">
-                     <button 
-                       onClick={() => data.onUpdate(item.id, -1)} 
-                       className="win-button w-6 h-6 flex items-center justify-center"
-                     >
-                       <Minus className="w-2.5 h-2.5" />
-                     </button>
-                     
-                     <div className="relative">
-                       {data.editingId === item.id ? (
-                         <input 
-                           type="number"
-                           min="1"
-                           max={item.stockQuantity}
-                           autoFocus
-                           className={cn(
-                             "win-input w-8 h-6 text-[10px] font-black text-center p-0",
-                             item.quantity >= item.stockQuantity ? "text-red-700" : "text-blue-700"
-                           )}
-                           value={item.quantity}
-                           onChange={(e) => {
-                             const val = parseInt(e.target.value);
-                             if (!isNaN(val) && val > 0) {
-                               const finalVal = Math.min(val, item.stockQuantity);
-                               if (val > item.stockQuantity) {
-                                  // Feedback? Maybe just cap it
-                               }
-                               data.updateCart(prev => prev.map(i => i.id === item.id ? { ...i, quantity: finalVal } : i));
-                             }
-                           }}
-                           onBlur={() => data.setEditingId(null)}
-                           onFocus={(e) => e.target.select()}
-                           onKeyDown={(e) => {
-                             if (e.key === 'Enter') {
-                               data.setEditingId(null);
-                               data.scanRef.current?.focus();
-                             }
-                           }}
-                         />
-                       ) : (
-                         <button
-                           onClick={() => data.setEditingId(item.id)}
-                           className={cn(
-                             "win-button min-w-8 h-6 px-1 text-[10px] font-black flex items-center justify-center hover:bg-blue-100 transition-colors",
-                             item.quantity >= item.stockQuantity ? "text-red-700" : "text-blue-700"
-                           )}
-                         >
-                           {item.quantity}
-                         </button>
-                        )}
-                     </div>
-
-                     <button 
-                       disabled={item.quantity >= item.stockQuantity}
-                       onClick={() => data.onUpdate(item.id, 1)} 
-                       className={cn(
-                         "win-button w-6 h-6 flex items-center justify-center",
-                         item.quantity >= item.stockQuantity && "opacity-30 cursor-not-allowed"
-                       )}
-                     >
-                       <Plus className="w-2.5 h-2.5" />
-                     </button>
-                  </div>
-              <span className="font-bold text-[10px] text-gray-800">{formatCurrency(item.price * item.quantity)}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  });
-
-  const cartItemData = React.useMemo(() => ({
-    items: cart,
-    onRemove: removeFromCart,
-    onUpdate: updateQuantity,
-    onMove: moveCartItem,
-    editingId: editingQtyId,
-    setEditingId: setEditingQtyId,
-    lastId: lastScannedId,
-    scanRef: scanInputRef,
-    updateCart: setCart
-  }), [cart, editingQtyId, lastScannedId]);
-
-  const FixedSizeList = (ReactWindow as any).FixedSizeList;
-  const AutoSizer = VirtualAutoSizer as any;
 
   return (
     <div className="h-full min-h-0 flex flex-col md:flex-row overflow-hidden bg-[var(--color-win-bg)] p-1 md:p-2 gap-1 md:gap-2 relative">
@@ -554,22 +419,154 @@ export default function POS() {
                </div>
             </div>
 
-            <div className="flex-1 win-inset bg-white custom-scrollbar overflow-hidden relative">
+            <div className="px-2 pb-2">
+               <div className="relative">
+                  <UserCheck className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                  <input 
+                    type="text"
+                    placeholder="CLIENT_IDENTIFICATION..."
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    className="win-input w-full h-8 pl-8 text-[10px] font-black uppercase italic tracking-tighter"
+                  />
+               </div>
+            </div>
+
+            <div className="flex-1 win-inset bg-white custom-scrollbar overflow-y-auto relative no-scrollbar">
               {cart.length > 0 ? (
-                <AutoSizer>
-                  {({ height, width }: any) => (
-                    <FixedSizeList
-                      height={height}
-                      width={width}
-                      itemCount={cart.length}
-                      itemSize={72}
-                      itemData={cartItemData}
-                      className="custom-scrollbar"
+                <Reorder.Group 
+                  axis="y" 
+                  values={cart} 
+                  onReorder={setCart}
+                  className="p-1 space-y-1"
+                >
+                  {cart.map((item, index) => (
+                    <Reorder.Item
+                      key={item.id}
+                      value={item}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      className={cn(
+                        "px-2 py-2 flex items-center gap-2 border border-gray-100 win-outset bg-white group font-bold italic transition-colors duration-200 cursor-grab active:cursor-grabbing",
+                        item.id === lastScannedId ? "bg-green-50 ring-2 ring-green-500 ring-inset" : "hover:bg-blue-50"
+                      )}
                     >
-                      {CartRow}
-                    </FixedSizeList>
-                  )}
-                </AutoSizer>
+                      <div className="flex flex-col items-center gap-0.5 pr-1 border-r border-gray-100 text-gray-300 group-hover:text-gray-400">
+                         <GripVertical className="w-3.5 h-3.5" />
+                         <div className="flex flex-col">
+                           <button 
+                             disabled={index === 0}
+                             onPointerDown={(e) => e.stopPropagation()} // Prevent drag when clicking buttons
+                             onClick={() => moveCartItem(index, 'up')}
+                             className="p-0.5 hover:text-blue-600 disabled:opacity-20"
+                           >
+                             <ChevronUp className="w-2.5 h-2.5" />
+                           </button>
+                           <button 
+                             disabled={index === cart.length - 1}
+                             onPointerDown={(e) => e.stopPropagation()} // Prevent drag when clicking buttons
+                             onClick={() => moveCartItem(index, 'down')}
+                             className="p-0.5 hover:text-blue-600 disabled:opacity-20"
+                           >
+                             <ChevronDown className="w-2.5 h-2.5" />
+                           </button>
+                         </div>
+                      </div>
+
+                      <div className="w-10 h-10 win-outset bg-white rounded flex-shrink-0 flex items-center justify-center overflow-hidden relative pointer-events-none">
+                         {item.imageUrl ? (
+                           <img 
+                            src={item.imageUrl} 
+                            alt="" 
+                            className="w-full h-full object-cover grayscale-[20%] group-hover:grayscale-0 transition-all duration-300" 
+                           />
+                         ) : (
+                           <Package className="w-6 h-6 text-gray-200" />
+                         )}
+                         {item.stockQuantity < (item.minStockLevel || 5) && (
+                           <div className="absolute top-0 right-0 w-2 h-2 bg-red-600 rounded-full border border-white" />
+                         )}
+                      </div>
+                      
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-start">
+                          <h4 className="text-[10px] truncate uppercase text-[var(--color-win-text)] pointer-events-none">{item.name}</h4>
+                          <button 
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={() => removeFromCart(item.id)}
+                            className="text-gray-400 hover:text-red-700 p-1"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-between mt-0.5">
+                              <div className="flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
+                                 <button 
+                                   onClick={() => updateQuantity(item.id, -1)} 
+                                   className="win-button w-6 h-6 flex items-center justify-center"
+                                 >
+                                   <Minus className="w-2.5 h-2.5" />
+                                 </button>
+                                 
+                                 <div className="relative">
+                                   {editingQtyId === item.id ? (
+                                     <input 
+                                       type="number"
+                                       min="1"
+                                       max={item.stockQuantity}
+                                       autoFocus
+                                       className={cn(
+                                         "win-input w-8 h-6 text-[10px] font-black text-center p-0",
+                                         item.quantity >= item.stockQuantity ? "text-red-700" : "text-blue-700"
+                                       )}
+                                       value={item.quantity}
+                                       onChange={(e) => {
+                                         const val = parseInt(e.target.value);
+                                         if (!isNaN(val) && val > 0) {
+                                           const finalVal = Math.min(val, item.stockQuantity);
+                                           setCart(prev => prev.map(i => i.id === item.id ? { ...i, quantity: finalVal } : i));
+                                         }
+                                       }}
+                                       onBlur={() => setEditingQtyId(null)}
+                                       onFocus={(e) => e.target.select()}
+                                       onKeyDown={(e) => {
+                                         if (e.key === 'Enter') {
+                                           setEditingQtyId(null);
+                                           scanInputRef.current?.focus();
+                                         }
+                                       }}
+                                     />
+                                   ) : (
+                                     <button
+                                       onClick={() => setEditingQtyId(item.id)}
+                                       className={cn(
+                                         "win-button min-w-8 h-6 px-1 text-[10px] font-black flex items-center justify-center hover:bg-blue-100 transition-colors",
+                                         item.quantity >= item.stockQuantity ? "text-red-700" : "text-blue-700"
+                                       )}
+                                     >
+                                       {item.quantity}
+                                     </button>
+                                    )}
+                                 </div>
+
+                                 <button 
+                                   disabled={item.quantity >= item.stockQuantity}
+                                   onClick={() => updateQuantity(item.id, 1)} 
+                                   className={cn(
+                                     "win-button w-6 h-6 flex items-center justify-center",
+                                     item.quantity >= item.stockQuantity && "opacity-30 cursor-not-allowed"
+                                   )}
+                                 >
+                                   <Plus className="w-2.5 h-2.5" />
+                                 </button>
+                              </div>
+                          <span className="font-bold text-[10px] text-gray-800 pointer-events-none">{formatCurrency(item.price * item.quantity)}</span>
+                        </div>
+                      </div>
+                    </Reorder.Item>
+                  ))}
+                </Reorder.Group>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-gray-400 p-6 opacity-30 text-center uppercase font-black italic">
                   <ShoppingCart className="w-12 h-12 mb-4" />
@@ -734,16 +731,26 @@ export default function POS() {
                       <span className="text-[12px] font-black text-[var(--color-win-blue)] leading-none italic">₱ 8,420.00</span>
                    </div>
                    <button 
-                     onClick={() => setIsScannerOpen(true)}
-                     className="win-button h-9 px-3 flex items-center justify-center gap-2"
+                     type="button"
+                     onClick={(e) => {
+                       e.preventDefault();
+                       e.stopPropagation();
+                       setIsScannerOpen(true);
+                     }}
+                     className="win-button h-9 px-3 flex items-center justify-center gap-2 relative z-20 cursor-pointer"
                      title="Camera Scanner"
                    >
                       <Scan className="w-4 h-4" />
                       <span className="text-[10px] font-black uppercase italic">Scan</span>
                    </button>
                    <button 
-                     onClick={() => setIsHotspotOpen(true)}
-                     className="win-button h-9 px-3 flex items-center justify-center gap-2 text-blue-700"
+                     type="button"
+                     onClick={(e) => {
+                       e.preventDefault();
+                       e.stopPropagation();
+                       setIsHotspotOpen(true);
+                     }}
+                     className="win-button h-9 px-3 flex items-center justify-center gap-2 text-blue-700 relative z-20 cursor-pointer"
                      title="Remote Scanner Hotspot"
                    >
                       <Wifi className="w-4 h-4" />

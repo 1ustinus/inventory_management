@@ -30,6 +30,12 @@ export default function Receipt({ sale }: ReceiptProps) {
           <span>Cashier:</span>
           <span>{sale.cashierId.slice(0, 8)}</span>
         </div>
+        {sale.customerName && (
+          <div className="flex justify-between border-t border-slate-100 mt-1 pt-1 font-bold">
+            <span>Customer:</span>
+            <span className="uppercase">{sale.customerName}</span>
+          </div>
+        )}
       </div>
 
       <div className="space-y-1">

@@ -24,6 +24,7 @@ import { format } from 'date-fns';
 import Receipt from '../components/Receipt';
 import { hasPermission } from '../lib/permissions';
 import { Shield } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 export default function SalesHistory() {
   const [sales, setSales] = useState<Sale[]>([]);
@@ -46,6 +47,22 @@ export default function SalesHistory() {
 
   const canView = hasPermission(currentUser, 'sales:view');
   const canVoid = hasPermission(currentUser, 'sales:void');
+
+  const exportToExcel = () => {
+    const dataToExport = sales.map(sale => ({
+      'Transaction ID': sale.transactionId,
+      'Date': format(new Date(sale.createdAt), 'yyyy-MM-dd HH:mm:ss'),
+      'Items Count': sale.items.length,
+      'Payment Method': sale.paymentMethod.toUpperCase(),
+      'Total Amount': sale.total,
+      'Status': sale.status.toUpperCase()
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Sales Ledger");
+    XLSX.writeFile(wb, `Sales_Ledger_${format(new Date(), 'yyyyMMdd_HHmm')}.xlsx`);
+  };
 
   if (!canView && currentUser) {
     return (
@@ -100,7 +117,10 @@ export default function SalesHistory() {
           <p className="text-gray-700 font-bold italic text-[10px] md:text-sm">Historical archive of all verified fiscal exchanges.</p>
         </div>
         <div className="flex gap-2">
-          <button className="win-button px-5 py-2 text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+          <button 
+            onClick={exportToExcel}
+            className="win-button px-5 py-2 text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+          >
             <Download className="w-4 h-4" /> Export Ledger
           </button>
         </div>
@@ -126,12 +146,6 @@ export default function SalesHistory() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           </div>
           <div className="flex gap-2">
-             <button className="win-button px-4 h-9 flex items-center gap-2 text-[10px] font-black uppercase tracking-tight">
-                <Calendar className="w-3.5 h-3.5 opacity-70" /> All Eras
-             </button>
-             <button className="win-button px-4 h-9 flex items-center gap-2 text-[10px] font-black uppercase tracking-tight">
-                <Filter className="w-3.5 h-3.5 opacity-70" /> Filter
-             </button>
           </div>
         </div>
 

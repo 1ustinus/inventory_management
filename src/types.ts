@@ -63,6 +63,7 @@ export interface Sale {
   paymentMethod: PaymentMethod;
   amountReceived: number;
   change: number;
+  customerName?: string;
   status: 'completed' | 'voided';
   isSynced?: boolean;
   createdAt: string;

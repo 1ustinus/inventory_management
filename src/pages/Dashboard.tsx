@@ -23,6 +23,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { localDb, STORAGE_KEYS } from '../lib/localDb';
 import { Sale, Product } from '../types';
 import { Link } from 'react-router-dom';
+import * as XLSX from 'xlsx';
 
 const data = [
   { name: '06:00', sales: 4000 },
@@ -76,6 +77,24 @@ export default function Dashboard() {
     return () => window.removeEventListener('storage_update', updateStats);
   }, []);
 
+  const exportToExcel = () => {
+    const sales = localDb.getAll<Sale>(STORAGE_KEYS.SALES);
+    const dataToExport = sales.map(sale => ({
+      'Transaction ID': sale.transactionId || sale.id.substring(0, 8),
+      'Date': format(new Date(sale.createdAt), 'yyyy-MM-dd HH:mm:ss'),
+      'Items Count': sale.items.length,
+      'Payment Method': sale.paymentMethod.toUpperCase(),
+      'Total Amount': sale.total,
+      'Status': sale.status.toUpperCase(),
+      'Customer': sale.customerName || 'N/A'
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Sales Report");
+    XLSX.writeFile(wb, `FlexiMart_Sales_Report_${format(new Date(), 'yyyyMMdd_HHmm')}.xlsx`);
+  };
+
   return (
     <div className="p-4 md:p-8 space-y-4 md:space-y-8 max-w-[1600px] mx-auto bg-[var(--color-win-bg)] min-h-screen">
       <header className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
@@ -84,12 +103,18 @@ export default function Dashboard() {
           <p className="text-gray-700 font-medium italic text-[10px] md:text-sm">Welcome back, operative. Overview of today's activities.</p>
         </div>
         <div className="flex gap-2 w-full md:w-auto">
-          <button className="win-button flex-1 md:flex-none px-4 py-2 text-xs font-bold transition-all uppercase tracking-widest text-[9px] md:text-xs">
+          <button 
+            onClick={exportToExcel}
+            className="win-button flex-1 md:flex-none px-4 py-2 text-xs font-bold transition-all uppercase tracking-widest text-[9px] md:text-xs"
+          >
             Export Report
           </button>
-          <button className="win-button flex-1 md:flex-none px-4 py-2 bg-emerald-500 text-white font-black hover:bg-emerald-400 transition-all shadow-lg uppercase tracking-widest text-[9px] md:text-xs">
+          <Link 
+            to="/pos"
+            className="win-button flex-1 md:flex-none px-4 py-2 bg-emerald-500 text-white font-black hover:bg-emerald-400 transition-all shadow-lg uppercase tracking-widest text-[9px] md:text-xs flex items-center justify-center"
+          >
             New Entry
-          </button>
+          </Link>
         </div>
       </header>
 

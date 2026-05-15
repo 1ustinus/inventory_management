@@ -92,9 +92,6 @@ export default function Inventory() {
           <h1 className="text-sm font-black text-[var(--color-win-text)] tracking-tight uppercase italic underline decoration-2">Warehouse_DB / Inventory Control Node</h1>
         </div>
         <div className="flex gap-2">
-          <button className="win-button px-4 py-1 text-[10px] font-black uppercase flex items-center gap-2">
-            <Download className="w-3.5 h-3.5" /> Dump Data
-          </button>
           {canEdit && (
             <button 
               onClick={() => setIsModalOpen(true)}

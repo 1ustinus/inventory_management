@@ -31,7 +31,10 @@ import { motion } from 'motion/react';
 import { formatCurrency, cn } from '../lib/utils';
 import { CATEGORIES } from '../constants';
 import { hasPermission } from '../lib/permissions';
-import { User } from '../types';
+import { User, Sale } from '../types';
+import * as XLSX from 'xlsx';
+import { localDb, STORAGE_KEYS } from '../lib/localDb';
+import { format } from 'date-fns';
 
 const salesData = [
   { day: 'Mon', revenue: 45000, profit: 12000 },
@@ -62,6 +65,24 @@ export default function Reports() {
 
   const canView = hasPermission(currentUser, 'reports:view');
   const canExport = hasPermission(currentUser, 'reports:export');
+
+  const exportToExcel = (customSales?: Sale[]) => {
+    const salesToProcess = customSales || localDb.getAll<Sale>(STORAGE_KEYS.SALES);
+    const dataToExport = salesToProcess.map(sale => ({
+      'Transaction ID': sale.transactionId || sale.id.substring(0, 8),
+      'Date': format(new Date(sale.createdAt), 'yyyy-MM-dd HH:mm:ss'),
+      'Items Count': sale.items.length,
+      'Payment Method': sale.paymentMethod.toUpperCase(),
+      'Total Amount': sale.total,
+      'Status': sale.status.toUpperCase(),
+      'Customer': sale.customerName || 'N/A'
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Sales Report");
+    XLSX.writeFile(wb, `FlexiMart_Report_${format(new Date(), 'yyyyMMdd_HHmm')}.xlsx`);
+  };
 
   if (!canView && currentUser) {
      return (
@@ -105,16 +126,20 @@ export default function Reports() {
           <p className="text-gray-700 font-bold italic text-[10px] md:text-sm">Deep-dive binary analytics and strategic financial projections.</p>
         </div>
         <div className="flex gap-2">
-           <button className="win-button px-4 py-2 text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+           <button 
+             onClick={() => setDateRange(prev => prev === 'This Week' ? 'This Month' : 'This Week')}
+             className="win-button px-4 py-2 text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+           >
              <Calendar className="w-3.5 h-3.5 text-[var(--color-win-blue)]" />
              {dateRange}
            </button>
            <button 
-              disabled={!canExport}
-              className={cn(
-                "win-button px-5 py-2 bg-white text-[var(--color-win-blue)] font-black uppercase tracking-widest flex items-center gap-2 underline",
-                !canExport && "opacity-50 cursor-not-allowed grayscale"
-              )}
+             onClick={() => exportToExcel()}
+             disabled={!canExport}
+             className={cn(
+               "win-button px-5 py-2 bg-white text-[var(--color-win-blue)] font-black uppercase tracking-widest flex items-center gap-2 underline",
+               !canExport && "opacity-50 cursor-not-allowed grayscale"
+             )}
            >
              <Download className="w-3.5 h-3.5" /> Dump Report
            </button>

@@ -11,35 +11,43 @@ interface ScannerModalProps {
 
 export default function ScannerModal({ isOpen, onClose, onScan }: ScannerModalProps) {
   useEffect(() => {
-    if (!isOpen) return;
+    let scanner: Html5QrcodeScanner | null = null;
 
-    const scanner = new Html5QrcodeScanner(
-      "reader",
-      { 
-        fps: 10, 
-        qrbox: { width: 250, height: 150 },
-        aspectRatio: 1.0,
-      },
-      /* verbose= */ false
-    );
+    if (isOpen) {
+      scanner = new Html5QrcodeScanner(
+        "reader",
+        { 
+          fps: 10, 
+          qrbox: { width: 250, height: 150 },
+          aspectRatio: 1.0,
+          showTorchButtonIfSupported: true,
+          showZoomSliderIfSupported: true,
+        },
+        /* verbose= */ false
+      );
 
-    scanner.render(
-      (decodedText) => {
-        onScan(decodedText);
-        scanner.clear();
-        onClose();
-      },
-      (error) => {
-        // console.warn(error);
-      }
-    );
+      scanner.render(
+        (decodedText) => {
+          onScan(decodedText);
+          if (scanner) {
+            scanner.clear().catch(err => console.error("Error clearing scanner on scan:", err));
+          }
+          onClose();
+        },
+        () => {
+          // Silent failure for each frame
+        }
+      );
+    }
 
     return () => {
-      scanner.clear().catch(error => {
-        console.error("Failed to clear html5QrcodeScanner. ", error);
-      });
+      if (scanner) {
+        scanner.clear().catch(error => {
+          console.warn("Failed to clear html5QrcodeScanner. This is usually fine if the component is unmounting. ", error);
+        });
+      }
     };
-  }, [isOpen, onScan, onClose]);
+  }, [isOpen]); // Only rerun if isOpen changes to prevent re-initializing on onScan change
 
   return (
     <AnimatePresence>
