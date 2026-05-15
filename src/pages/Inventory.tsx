@@ -19,14 +19,12 @@ import {
   Shield
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { localDb, STORAGE_KEYS } from '../lib/localDb'; // Still imported for constants if needed, but we'll use firestoreDb
-import { firestoreDb } from '../lib/firestore';
+import { localDb, STORAGE_KEYS } from '../lib/localDb';
 import { Product, User } from '../types';
 import { formatCurrency, cn } from '../lib/utils';
 import { format } from 'date-fns';
 import { CATEGORIES } from '../constants';
 import { hasPermission } from '../lib/permissions';
-import { auth } from '../lib/firebase';
 
 import ProductModal from '../components/ProductModal';
 
@@ -43,19 +41,13 @@ export default function Inventory() {
   useEffect(() => {
     const authData = localStorage.getItem('flexi-auth');
     if (authData) setCurrentUser(JSON.parse(authData));
-    
-    // Fallback if not in localStorage but in Firebase
-    if (auth.currentUser && !authData) {
-      // User is from Firebase Auth, they'll have the profile in state from App.tsx
-      // But for simple permission check here, we can just use the auth info
-    }
 
-    // Subscribe to products in Firestore for real-time multi-device sync
-    const unsubscribe = firestoreDb.subscribe<Product>(STORAGE_KEYS.PRODUCTS, (data) => {
-      setProducts(data);
-    });
-
-    return () => unsubscribe();
+    const updateInventory = () => {
+      setProducts(localDb.getAll<Product>(STORAGE_KEYS.PRODUCTS));
+    };
+    updateInventory();
+    window.addEventListener('storage_update', updateInventory);
+    return () => window.removeEventListener('storage_update', updateInventory);
   }, []);
 
   const filteredProducts = products.filter(p => {
@@ -68,11 +60,14 @@ export default function Inventory() {
 
   const canEdit = hasPermission(currentUser, 'inventory:edit');
   const canDelete = hasPermission(currentUser, 'inventory:delete');
+  const canView = hasPermission(currentUser, 'inventory:view');
 
   const handleDelete = async (id: string) => {
     if (confirm('Decommission this product record from the inventory vault?')) {
       try {
-        await firestoreDb.delete(STORAGE_KEYS.PRODUCTS, id);
+        localDb.delete(STORAGE_KEYS.PRODUCTS, id);
+        // Explicitly refresh state for immediate UI response
+        setProducts(localDb.getAll<Product>(STORAGE_KEYS.PRODUCTS));
       } catch (err) {
         console.error('Deletion failure:', err);
       }

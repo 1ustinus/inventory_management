@@ -17,8 +17,7 @@ import {
   Terminal
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { STORAGE_KEYS } from '../lib/localDb';
-import { firestoreDb } from '../lib/firestore';
+import { localDb, STORAGE_KEYS } from '../lib/localDb';
 import { Sale, User } from '../types';
 import { formatCurrency, cn } from '../lib/utils';
 import { format } from 'date-fns';
@@ -36,12 +35,13 @@ export default function SalesHistory() {
     const authData = localStorage.getItem('flexi-auth');
     if (authData) setCurrentUser(JSON.parse(authData));
 
-    // Subscribe to sales for real-time history
-    const unsubscribe = firestoreDb.subscribe<Sale>(STORAGE_KEYS.SALES, (data) => {
+    const fetchSales = () => {
+      const data = localDb.getAll<Sale>(STORAGE_KEYS.SALES);
       setSales(data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-    });
-    
-    return () => unsubscribe();
+    };
+    fetchSales();
+    window.addEventListener('storage_update', fetchSales);
+    return () => window.removeEventListener('storage_update', fetchSales);
   }, []);
 
   const canView = hasPermission(currentUser, 'sales:view');

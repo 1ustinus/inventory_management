@@ -4,8 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Save, Shield, User as UserIcon, Lock, Terminal, CheckSquare, Square } from 'lucide-react';
-import { STORAGE_KEYS } from '../lib/localDb';
-import { firestoreDb } from '../lib/firestore';
+import { localDb, STORAGE_KEYS } from '../lib/localDb';
 import { User, UserRole, Permission } from '../types';
 import { PERMISSION_LABELS, ROLE_PERMISSIONS } from '../lib/permissions';
 import { cn } from '../lib/utils';
@@ -82,7 +81,7 @@ export default function UserModal({ isOpen, onClose, editingUser }: UserModalPro
       }
 
       if (editingUser && targetId) {
-        await firestoreDb.update<any>(STORAGE_KEYS.USERS, targetId, {
+        localDb.update<any>(STORAGE_KEYS.USERS, targetId, {
           ...data,
           permissions: data.permissions as Permission[],
           updatedAt: new Date().toISOString(),
@@ -96,11 +95,12 @@ export default function UserModal({ isOpen, onClose, editingUser }: UserModalPro
           lastLogin: new Date().toISOString(),
         };
 
-        await firestoreDb.add<User>(STORAGE_KEYS.USERS, newUser);
+        localDb.add<User>(STORAGE_KEYS.USERS, newUser);
       }
       
-      // Auto notification in Cloud
-      await firestoreDb.add(STORAGE_KEYS.NOTIFICATIONS, {
+      // Auto notification
+      localDb.add(STORAGE_KEYS.NOTIFICATIONS, {
+        id: `notif-${Date.now()}`,
         title: editingUser ? "Operative Record Updated" : "New Operative Provisioned",
         message: editingUser 
           ? `${data.displayName} account parameters have been re-calibrated.`
