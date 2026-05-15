@@ -19,7 +19,8 @@ const productSchema = z.object({
   stockQuantity: z.number().min(0, 'Initial quantity required'),
   imageUrl: z.string().optional(),
   unit: z.string().min(1, 'Unit of measurement required'),
-  description: z.string().optional()
+  description: z.string().optional(),
+  expiryDate: z.string().optional()
 });
 
 type ProductFormValues = z.infer<typeof productSchema>;
@@ -95,6 +96,7 @@ export default function ProductModal({ isOpen, onClose, editingProduct }: Produc
         imageUrl: editingProduct.imageUrl || '',
         unit: editingProduct.unit || 'pcs',
         description: editingProduct.description || '',
+        expiryDate: editingProduct.expiryDate || '',
       });
       setGeneratedBarcode(editingProduct.barcode || '');
     } else {
@@ -111,6 +113,7 @@ export default function ProductModal({ isOpen, onClose, editingProduct }: Produc
         imageUrl: '',
         unit: 'pcs',
         description: '',
+        expiryDate: '',
       });
       setGeneratedBarcode('');
     }
@@ -353,8 +356,16 @@ export default function ProductModal({ isOpen, onClose, editingProduct }: Produc
                              </div>
 
                              <div className="space-y-1">
-                                <label className="text-[9px] font-black text-gray-500 uppercase">Operational Memo</label>
+                                <label className="text-[9px] font-black text-gray-500 uppercase">Operational Memo / Expiry</label>
                                 <textarea {...register('description')} className="win-input w-full h-12 p-2 text-[10px] bg-white resize-none" placeholder="Administrative notes..." />
+                             </div>
+                             <div className="space-y-1">
+                                <label className="text-[9px] font-black text-gray-500 uppercase italic">Vault_Expiry_Protocol</label>
+                                <input 
+                                  type="date" 
+                                  {...register('expiryDate')} 
+                                  className="win-input w-full h-7 px-2 text-[11px] font-bold bg-white" 
+                                />
                              </div>
                           </div>
                        </div>

@@ -98,9 +98,14 @@ export default function Dashboard() {
   return (
     <div className="p-4 md:p-8 space-y-4 md:space-y-8 max-w-[1600px] mx-auto bg-[var(--color-win-bg)] min-h-screen">
       <header className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
-        <div>
-          <h1 className="text-xl md:text-3xl font-black text-[var(--color-win-text)] tracking-tight">FlexiMart Dashboard</h1>
-          <p className="text-gray-700 font-medium italic text-[10px] md:text-sm">Welcome back, operative. Overview of today's activities.</p>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 win-inset bg-[var(--color-win-blue)] flex items-center justify-center text-white shadow-inner">
+            <Package className="w-6 h-6" />
+          </div>
+          <div>
+            <h1 className="text-xl md:text-3xl font-black text-[var(--color-win-text)] tracking-tight">FlexiMart Dashboard</h1>
+            <p className="text-gray-700 font-medium italic text-[10px] md:text-sm">Welcome back, operative. Overview of today's activities.</p>
+          </div>
         </div>
         <div className="flex gap-2 w-full md:w-auto">
           <button 

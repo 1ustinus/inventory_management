@@ -67,12 +67,18 @@ export default function Sidebar({
       >
       <div className="p-4 flex items-center justify-between border-b border-[var(--color-win-dark)] bg-white/20">
         <div className={cn("flex items-center gap-3 overflow-hidden transition-opacity", isMinimized ? "opacity-0 invisible w-0" : "opacity-100 visible w-auto")}>
-          <div className="w-8 h-8 win-inset bg-[var(--color-win-blue)] flex items-center justify-center text-white shrink-0">
-            <Terminal className="w-5 h-5" />
+          <div className="w-10 h-10 win-inset bg-[var(--color-win-blue)] flex items-center justify-center text-white shrink-0 shadow-lg">
+            <ShoppingCart className="w-6 h-6 animate-pulse" />
           </div>
           <div className="flex flex-col whitespace-nowrap">
-             <h1 className="text-sm font-black italic tracking-tighter text-black">FlexiMart <span className="text-[var(--color-win-blue)] underline">98</span></h1>
-             <span className="text-[8px] font-bold text-gray-600 uppercase tracking-widest">Enterprise Edition</span>
+             <div className="flex items-center gap-1">
+                <h1 className="text-base font-black italic tracking-tighter text-black">FlexiMart <span className="text-[var(--color-win-blue)] underline">98</span></h1>
+                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+             </div>
+             <span className="text-[8px] font-bold text-gray-600 uppercase tracking-widest flex items-center gap-1">
+                <Terminal className="w-2 h-2" />
+                Enterprise Edition
+             </span>
           </div>
         </div>
         <button 
