@@ -20,7 +20,8 @@ import {
   ResponsiveContainer
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
-import { localDb, STORAGE_KEYS } from '../lib/localDb';
+import { STORAGE_KEYS } from '../lib/localDb';
+import { firestoreDb } from '../lib/firestore';
 import { Sale, Product } from '../types';
 import { Link } from 'react-router-dom';
 
@@ -42,6 +43,7 @@ export default function Dashboard() {
     avgBasket: 0
   });
 
+  const [products, setProducts] = useState<Product[]>([]);
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
   const [isAlertDismissed, setIsAlertDismissed] = useState(() => {
     return sessionStorage.getItem('low_stock_alert_dismissed') === 'true';
@@ -53,28 +55,40 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    const updateStats = () => {
-      const sales = localDb.getAll<Sale>(STORAGE_KEYS.SALES);
-      const products = localDb.getAll<Product>(STORAGE_KEYS.PRODUCTS);
+    // Subscribe to products for low stock alerts
+    const unsubProducts = firestoreDb.subscribe<Product>(STORAGE_KEYS.PRODUCTS, (data) => {
+      setProducts(data);
+    });
 
+    // Subscribe to sales for real-time analytics
+    const unsubSales = firestoreDb.subscribe<Sale>(STORAGE_KEYS.SALES, (sales) => {
       const today = startOfDay(new Date());
       const todaySales = sales.filter(s => new Date(s.createdAt) >= today);
       
       const total = todaySales.reduce((acc, s) => acc + s.total, 0);
-      setStats({
+      setStats(prev => ({
+        ...prev,
         totalSales: total,
         transactions: todaySales.length,
         avgBasket: todaySales.length > 0 ? total / todaySales.length : 0,
-        lowStock: products.filter(p => p.stockQuantity <= (p.minStockLevel || 10)).length
-      });
+      }));
       
       setRecentSales(sales.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 5));
-    };
+    });
 
-    updateStats();
-    window.addEventListener('storage_update', updateStats);
-    return () => window.removeEventListener('storage_update', updateStats);
+    return () => {
+      unsubProducts();
+      unsubSales();
+    };
   }, []);
+
+  // Update low stock count when products change
+  useEffect(() => {
+    setStats(prev => ({
+      ...prev,
+      lowStock: products.filter(p => p.stockQuantity <= (p.minStockLevel || 10)).length
+    }));
+  }, [products]);
 
   return (
     <div className="p-4 md:p-8 space-y-4 md:space-y-8 max-w-[1600px] mx-auto bg-[var(--color-win-bg)] min-h-screen">

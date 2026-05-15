@@ -30,6 +30,7 @@ import { motion, AnimatePresence, Reorder } from 'motion/react';
 import * as ReactWindow from 'react-window';
 import { AutoSizer as VirtualAutoSizer } from 'react-virtualized-auto-sizer';
 import { localDb, STORAGE_KEYS } from '../lib/localDb';
+import { firestoreDb } from '../lib/firestore';
 import { Product, CartItem, PaymentMethod, Sale, User } from '../types';
 import { formatCurrency, generateBarcode, cn } from '../lib/utils';
 import { CATEGORIES, TAX_RATE } from '../constants';
@@ -39,6 +40,7 @@ import ScannerModal from '../components/ScannerModal';
 import HotspotModal from '../components/HotspotModal';
 import { hasPermission } from '../lib/permissions';
 import { Shield } from 'lucide-react';
+import { auth, db } from '../lib/firebase';
 
 export default function POS() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -58,67 +60,11 @@ export default function POS() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [editingQtyId, setEditingQtyId] = useState<string | null>(null);
 
   const scanInputRef = useRef<HTMLInputElement>(null);
-
-  const updatePendingCount = () => {
-    const allSales = localDb.getAll<Sale>(STORAGE_KEYS.SALES);
-    const pending = allSales.filter(s => !s.isSynced).length;
-    setPendingSyncCount(pending);
-  };
-
-  const syncPendingSales = async () => {
-    if (!navigator.onLine) {
-      setSyncError('OFFLINE: Check network');
-      return;
-    }
-    
-    if (isSyncing) return;
-    
-    const allSales = localDb.getAll<Sale>(STORAGE_KEYS.SALES);
-    const pendingSales = allSales.filter(s => !s.isSynced);
-    
-    if (pendingSales.length === 0) {
-      setSyncError(null);
-      return;
-    }
-
-    try {
-      setIsSyncing(true);
-      setSyncError(null);
-      
-      const response = await fetch('/api/sync/sales', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          sales: pendingSales,
-          syncSource: `STATION-${stationId}`,
-          timestamp: new Date().toISOString()
-        })
-      });
-
-      if (response.ok) {
-        // Mark as synced in local DB
-        pendingSales.forEach(sale => {
-          localDb.update<Sale>(STORAGE_KEYS.SALES, sale.id, { isSynced: true });
-        });
-        setLastSyncTime(new Date().toLocaleTimeString());
-        updatePendingCount();
-        setSyncError(null);
-      } else {
-        throw new Error('Server rejected backup');
-      }
-    } catch (err: any) {
-      console.error('Sync failed:', err);
-      setSyncError(err.message || 'Sync error');
-    } finally {
-      setIsSyncing(false);
-    }
-  };
 
   useEffect(() => {
     const authData = localStorage.getItem('flexi-auth');
@@ -141,55 +87,21 @@ export default function POS() {
       }
     };
 
-    window.addEventListener('resize', handleResize);
     window.addEventListener('keydown', handleKeyDown);
-    fetchProducts();
-    window.addEventListener('storage_update', fetchProducts);
-    
-    updatePendingCount();
+
+    // Use Firestore for real-time product/stock updates
+    const unsubscribe = firestoreDb.subscribe<Product>(STORAGE_KEYS.PRODUCTS, (data) => {
+      setProducts(data.filter(p => p.stockQuantity > 0));
+    });
 
     return () => {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('storage_update', fetchProducts);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      unsubscribe();
     };
   }, []);
-
-  useEffect(() => {
-    if (isOnline) {
-      syncPendingSales();
-    }
-  }, [isOnline]);
-
-  // Remote Scanner Polling
-  useEffect(() => {
-    let polling = true;
-    const poll = async () => {
-      if (!polling) return;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      try {
-        const res = await fetch(`/api/station/${stationId}/poll`, { signal: controller.signal });
-        if (res.ok) {
-          const data = await res.json();
-          if (data && data.barcode) {
-            processScan(data.barcode);
-          }
-        }
-      } catch (err: any) {
-        if (err.name !== 'AbortError') {
-          console.error('Polling error:', err.message || err);
-        }
-      } finally {
-        clearTimeout(timeoutId);
-        if (polling) setTimeout(poll, 3000);
-      }
-    };
-    poll();
-    return () => { polling = false; };
-  }, [stationId]);
 
   const canAccess = hasPermission(currentUser, 'pos:access');
 
@@ -197,7 +109,7 @@ export default function POS() {
     const product = products.find(p => p.barcode === barcode || p.sku === barcode);
     if (product) {
       addToCart(product);
-      setLastScannedId(product.id);
+      setLastScannedId(product.id || null);
       setScanError(null);
       
       // Auto-focus quantity input for the newly added/updated item
@@ -215,45 +127,6 @@ export default function POS() {
     setScanError(`NOT_FOUND: ${barcode}`);
     setTimeout(() => setScanError(null), 3000);
     return false;
-  };
-
-  if (!canAccess && currentUser) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[80vh] p-4">
-         <motion.div 
-           initial={{ scale: 0.9, opacity: 0 }}
-           animate={{ scale: 1, opacity: 1 }}
-           className="win-outset p-8 md:p-12 flex flex-col items-center bg-[var(--color-win-bg)] shadow-2xl max-w-lg w-full"
-         >
-            <div className="win-header w-full mb-6 !bg-red-900 px-2 py-1 flex items-center gap-2">
-               <Shield className="w-3.5 h-3.5 text-white" />
-               <span className="text-[10px] font-black text-white uppercase tracking-widest">Access_Denied_Terminal</span>
-            </div>
-            
-            <div className="win-inset bg-white p-6 flex flex-col items-center mb-6 w-full">
-               <Shield className="w-16 h-16 text-red-700 mb-4 animate-pulse opacity-20" />
-               <h2 className="text-xl font-black text-red-700 uppercase italic tracking-widest border-b-4 border-red-700 pb-2 mb-4 text-center">Protocol Violation</h2>
-               <p className="text-[10px] font-black text-gray-500 uppercase tracking-tighter text-center italic">
-                 Identity signature [{(currentUser?.displayName || 'UNKNOWN').toUpperCase()}] lacks required operative clearances (pos:access).
-               </p>
-            </div>
-
-            <div className="w-full flex justify-center">
-               <button 
-                 onClick={() => window.location.hash = '#/'}
-                 className="win-button px-10 py-2 text-[10px] font-black uppercase text-blue-900 border-blue-900 shadow-[4px_4px_0] shadow-blue-900/20 active:translate-y-[2px]"
-               >
-                 Return to Dashboard
-               </button>
-            </div>
-         </motion.div>
-      </div>
-    );
-  }
-
-  const fetchProducts = async () => {
-    const data = localDb.getAll<Product>(STORAGE_KEYS.PRODUCTS);
-    setProducts(data.filter(p => p.stockQuantity > 0));
   };
 
   const addToCart = (product: Product) => {
@@ -302,8 +175,6 @@ export default function POS() {
 
     if (processScan(barcode)) {
       setSearchQuery('');
-    } else {
-      // Keep search query if not found to allow text search results to remain
     }
     
     scanInputRef.current?.focus();
@@ -315,11 +186,9 @@ export default function POS() {
   const total = subtotal + tax - discount;
 
   const handlePayment = async (method: PaymentMethod, amountReceived: number) => {
-    const currentUser = JSON.parse(localStorage.getItem('flexi-auth') || '{}');
-    const saleData: Sale = {
-      id: Math.random().toString(36).substring(7),
+    const saleData: any = {
       transactionId: `TXN-${Date.now()}`,
-      cashierId: currentUser.uid || 'demo-manager',
+      cashierId: currentUser?.uid || auth.currentUser?.uid || 'unknown',
       items: cart,
       subtotal,
       tax,
@@ -329,20 +198,19 @@ export default function POS() {
       amountReceived,
       change: amountReceived - total,
       status: 'completed',
-      isSynced: false,
       createdAt: new Date().toISOString()
     };
 
     try {
-      localDb.add<Sale>(STORAGE_KEYS.SALES, saleData);
-      updatePendingCount();
+      setIsSyncing(true);
+      await firestoreDb.add<Sale>(STORAGE_KEYS.SALES, saleData);
       
-      // Update inventory stock
+      // Update inventory stock in Firestore
       for (const item of cart) {
-        const current = localDb.getOne<Product>(STORAGE_KEYS.PRODUCTS, item.id);
-        if (current) {
-          localDb.update<Product>(STORAGE_KEYS.PRODUCTS, item.id, {
-            stockQuantity: Math.max(0, current.stockQuantity - item.quantity),
+        const productRef = products.find(p => p.id === item.id);
+        if (productRef) {
+          await firestoreDb.update<Product>(STORAGE_KEYS.PRODUCTS, item.id, {
+            stockQuantity: Math.max(0, productRef.stockQuantity - item.quantity),
             updatedAt: new Date().toISOString()
           });
         }
@@ -351,14 +219,12 @@ export default function POS() {
       setLastSale(saleData);
       setCart([]);
       setDiscountType('none');
-      fetchProducts();
-      
-      // Attempt immediate sync if online
-      if (isOnline) {
-        syncPendingSales();
-      }
+      setLastSyncTime(new Date().toLocaleTimeString());
     } catch (error) {
       console.error('Sale error:', error);
+      setSyncError('Failed to commit sale to cloud');
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -664,28 +530,6 @@ export default function POS() {
                   <span className="hidden sm:inline">
                     {isOnline ? (syncError ? 'Sync_Error' : 'Online') : 'Offline'}
                   </span>
-
-                  {(pendingSyncCount > 0 || isSyncing) && (
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        syncPendingSales();
-                      }}
-                      disabled={isSyncing || !isOnline}
-                      className={cn(
-                        "flex items-center gap-1 ml-1 pl-1 border-l border-current hover:bg-black/5 px-1 rounded-sm transition-colors",
-                        isSyncing && "animate-pulse"
-                      )}
-                    >
-                       <Database className="w-2.5 h-2.5" />
-                       <span>{pendingSyncCount > 0 ? pendingSyncCount : '0'}</span>
-                       {isSyncing ? (
-                         <RefreshCw className="w-2.5 h-2.5 animate-spin" />
-                       ) : (
-                         isOnline && pendingSyncCount > 0 && <span className="text-[6px] opacity-60 ml-0.5">Sync?</span>
-                       )}
-                    </button>
-                  )}
                 </div>
              </div>
              <button 

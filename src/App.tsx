@@ -3,11 +3,12 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Sidebar from './components/Sidebar';
 import Navbar from './components/Navbar';
 import Calculator from './components/Calculator';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from './lib/firebase';
 import { User, UserRole } from './types';
 import { localDb, STORAGE_KEYS } from './lib/localDb';
+import { LogIn, Globe } from 'lucide-react';
 
 import Dashboard from './pages/Dashboard';
 import POS from './pages/POS';
@@ -23,7 +24,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 
 // LoginPage for retro
-const LoginPage = ({ onLogin }: { onLogin: (u: string, p: string) => void }) => {
+const LoginPage = ({ onLogin, onGoogleLogin }: { onLogin: (u: string, p: string) => void, onGoogleLogin: () => void }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -87,12 +88,30 @@ const LoginPage = ({ onLogin }: { onLogin: (u: string, p: string) => void }) => 
               />
             </div>
             {error && <p className="text-red-700 text-[10px] font-bold text-center underline italic">{error}</p>}
-            <button 
-              type="submit"
-              className="win-button w-full mt-6 py-2 uppercase tracking-widest text-xs"
-            >
-              Initialize Node
-            </button>
+            
+            <div className="flex flex-col gap-2 mt-6">
+              <button 
+                type="submit"
+                className="win-button w-full py-2 uppercase tracking-widest text-xs"
+              >
+                Initialize Node
+              </button>
+              
+              <div className="flex items-center gap-2 my-2">
+                <div className="h-px flex-1 bg-gray-400"></div>
+                <span className="text-[9px] font-bold text-gray-500 uppercase">Or Cloud Node</span>
+                <div className="h-px flex-1 bg-gray-400"></div>
+              </div>
+
+              <button 
+                type="button"
+                onClick={onGoogleLogin}
+                className="win-button w-full py-2 flex items-center justify-center gap-2 bg-[#4285F4] text-white hover:bg-[#357ae8]"
+              >
+                <Globe className="w-3.5 h-3.5" />
+                <span className="uppercase tracking-widest text-xs">Cloud Access (Google)</span>
+              </button>
+            </div>
           </form>
           <div className="pt-4 border-t border-[var(--color-win-dark)] flex justify-between items-center opacity-70">
             <p className="text-[9px] font-bold italic tracking-tighter">BUILD: 2026.05.07</p>
@@ -129,13 +148,52 @@ function App() {
     // Seed initial products if DB is empty
     seedInitialData();
 
-    // Setup local persist check
-    const storedUser = localStorage.getItem('flexi-auth');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    }
-    setLoading(false);
+    // Setup Firebase Auth observer
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        // Fetch or create user document in Firestore
+        const userDocRef = doc(db, 'users', firebaseUser.uid);
+        const userDocSnap = await getDoc(userDocRef);
+        
+        let userData: User;
+        if (userDocSnap.exists()) {
+          userData = userDocSnap.data() as User;
+        } else {
+          // New user from Google Login
+          userData = {
+            uid: firebaseUser.uid,
+            email: firebaseUser.email || '',
+            displayName: firebaseUser.displayName || 'Cloud Operative',
+            role: firebaseUser.email === 'justinkalaw4@gmail.com' ? 'admin' : 'cashier',
+            createdAt: new Date().toISOString(),
+            lastLogin: new Date().toISOString()
+          };
+          await setDoc(userDocRef, userData);
+        }
+        setUser(userData);
+      } else {
+        // Check local persist check if not using Firebase Auth
+        const storedUser = localStorage.getItem('flexi-auth');
+        if (storedUser) {
+          setUser(JSON.parse(storedUser));
+        } else {
+          setUser(null);
+        }
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
+
+  const handleGoogleLogin = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error('Google Sign-In Error:', error);
+    }
+  };
 
   const handleLogin = (u: string, p: string) => {
     const users = localDb.getAll<User>(STORAGE_KEYS.USERS);
@@ -149,7 +207,10 @@ function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (auth.currentUser) {
+      await signOut(auth);
+    }
     localStorage.removeItem('flexi-auth');
     setUser(null);
   };
@@ -170,7 +231,7 @@ function App() {
       <Router>
         <Routes>
           <Route path="/remote-scan/:stationId" element={<RemoteScanner />} />
-          <Route path="*" element={<LoginPage onLogin={handleLogin} />} />
+          <Route path="*" element={<LoginPage onLogin={handleLogin} onGoogleLogin={handleGoogleLogin} />} />
         </Routes>
       </Router>
     );

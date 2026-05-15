@@ -5,7 +5,8 @@ import * as z from 'zod';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Save, Barcode as BarcodeIcon, Printer, FileSpreadsheet, AlertCircle, Info, Image as ImageIcon, Box, Tag, DollarSign, Activity, Upload } from 'lucide-react';
 import { CATEGORIES } from '../constants';
-import { localDb, STORAGE_KEYS } from '../lib/localDb';
+import { STORAGE_KEYS } from '../lib/localDb';
+import { firestoreDb } from '../lib/firestore';
 
 const productSchema = z.object({
   name: z.string().min(2, 'Item name must be at least 2 characters'),
@@ -139,15 +140,13 @@ export default function ProductModal({ isOpen, onClose, editingProduct }: Produc
       };
 
       if (editingProduct) {
-        localDb.update<any>(STORAGE_KEYS.PRODUCTS, editingProduct.id, {
+        await firestoreDb.update<any>(STORAGE_KEYS.PRODUCTS, editingProduct.id, {
           ...payload,
-          id: editingProduct.id,
           updatedAt: new Date().toISOString()
         });
       } else {
-        localDb.add<any>(STORAGE_KEYS.PRODUCTS, {
+        await firestoreDb.add<any>(STORAGE_KEYS.PRODUCTS, {
           ...payload,
-          id: Math.random().toString(36).substring(7),
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         });

@@ -1,27 +1,15 @@
 import { localDb, STORAGE_KEYS } from '../lib/localDb';
+import { firestoreDb } from '../lib/firestore';
 import { CATEGORIES } from '../constants';
 import { generateBarcode } from '../lib/utils';
 import { Product, Category, User } from '../types';
 
 export async function seedInitialData() {
-  const users = localDb.getAll<User>(STORAGE_KEYS.USERS);
-  if (users.length === 0) {
-    localDb.add<User>(STORAGE_KEYS.USERS, {
-      uid: 'manager-node-01',
-      username: 'manager',
-      password: 'manager123',
-      email: 'manager@fleximart.local',
-      displayName: 'Manager Admin',
-      role: 'admin',
-      createdAt: new Date().toISOString(),
-      lastLogin: new Date().toISOString(),
-    });
-  }
+  // Check if we already have data in Firestore
+  const products = await firestoreDb.getAll<Product>(STORAGE_KEYS.PRODUCTS);
+  if (products.length > 0) return; // Already seeded in cloud
 
-  const products = localDb.getAll<Product>(STORAGE_KEYS.PRODUCTS);
-  if (products.length > 0) return; // Already seeded
-
-  console.log('Seeding initial data to LocalStorage...');
+  console.log('Seeding initial data to Cloud Storage...');
 
   const sampleProducts = [
     { name: "Purefoods Corned Beef 150g", price: 65, costPrice: 48, stock: 8, minStock: 10, category: "Canned Goods", image: "https://picsum.photos/seed/beef/200/200" },
@@ -42,8 +30,7 @@ export async function seedInitialData() {
     const itemId = Math.random().toString(36).substring(7).toUpperCase();
     const barcode = generateBarcode(categoryCode, sp.price, itemId);
 
-    localDb.add<Product>(STORAGE_KEYS.PRODUCTS, {
-      id: Math.random().toString(36).substring(7),
+    await firestoreDb.add<any>(STORAGE_KEYS.PRODUCTS, {
       name: sp.name,
       price: sp.price,
       costPrice: sp.costPrice,
@@ -61,14 +48,13 @@ export async function seedInitialData() {
   }
 
   // Seed Notifications
-  localDb.add(STORAGE_KEYS.NOTIFICATIONS, {
-    id: 'init-ping',
-    title: "System Local Ready",
-    message: "Firebase was bypassed. Your records are now stored locally in this browser.",
+  await firestoreDb.add(STORAGE_KEYS.NOTIFICATIONS, {
+    title: "System Cloud Node Active",
+    message: "Multi-device synchronization is now operational. Data is stored in the cloud.",
     type: "account",
     isRead: false,
     createdAt: new Date().toISOString()
   });
 
-  console.log('Local seeding complete.');
+  console.log('Cloud seeding complete.');
 }

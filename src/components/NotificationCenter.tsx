@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, X, AlertTriangle, Package, CheckCircle, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { localDb, STORAGE_KEYS } from '../lib/localDb';
+import { STORAGE_KEYS } from '../lib/localDb';
+import { firestoreDb } from '../lib/firestore';
 import { Notification } from '../types';
 import { cn } from '../lib/utils';
 import { formatDistanceToNow } from 'date-fns';
@@ -12,20 +13,22 @@ export default function NotificationCenter() {
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
-    const updateNotifications = () => {
-      const data = localDb.getAll<Notification>(STORAGE_KEYS.NOTIFICATIONS);
+    // Subscribe to notifications for real-time alerts
+    const unsubscribe = firestoreDb.subscribe<Notification>(STORAGE_KEYS.NOTIFICATIONS, (data) => {
       const sorted = data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setNotifications(sorted);
       setUnreadCount(sorted.filter(n => !n.isRead).length);
-    };
-
-    updateNotifications();
-    window.addEventListener('storage_update', updateNotifications);
-    return () => window.removeEventListener('storage_update', updateNotifications);
+    });
+    
+    return () => unsubscribe();
   }, []);
 
-  const markAsRead = (id: string) => {
-    localDb.update<Notification>(STORAGE_KEYS.NOTIFICATIONS, id, { isRead: true });
+  const markAsRead = async (id: string) => {
+    try {
+      await firestoreDb.update<Notification>(STORAGE_KEYS.NOTIFICATIONS, id, { isRead: true });
+    } catch (err) {
+      console.error('Failed to mark notification as read:', err);
+    }
   };
 
   const getTypeIcon = (type: string) => {

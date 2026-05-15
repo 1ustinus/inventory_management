@@ -13,7 +13,8 @@ import {
   Terminal
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { localDb, STORAGE_KEYS } from '../lib/localDb';
+import { STORAGE_KEYS } from '../lib/localDb';
+import { firestoreDb } from '../lib/firestore';
 import { User } from '../types';
 import { format } from 'date-fns';
 import { cn } from '../lib/utils';
@@ -31,12 +32,12 @@ export default function Users() {
     const authData = localStorage.getItem('flexi-auth');
     if (authData) setCurrentUser(JSON.parse(authData));
 
-    const updateUsers = () => {
-      setUsers(localDb.getAll<User>(STORAGE_KEYS.USERS));
-    };
-    updateUsers();
-    window.addEventListener('storage_update', updateUsers);
-    return () => window.removeEventListener('storage_update', updateUsers);
+    // Subscribe to users for real-time registry updates
+    const unsubscribe = firestoreDb.subscribe<User>(STORAGE_KEYS.USERS, (data) => {
+      setUsers(data);
+    });
+    
+    return () => unsubscribe();
   }, []);
 
   const filteredUsers = users.filter(u => 
@@ -81,7 +82,7 @@ export default function Users() {
     );
   }
 
-  const handleDeleteUser = (id?: string) => {
+  const handleDeleteUser = async (id?: string) => {
     if (!id) {
       console.warn('ID missing for decommission protocol.');
       return;
@@ -90,7 +91,7 @@ export default function Users() {
     // Safety check: Cannot delete self
     const authData = localStorage.getItem('flexi-auth');
     const authUser = authData ? JSON.parse(authData) : null;
-    const currentId = authUser?.id || authUser?.uid;
+    const currentId = authUser?.uid || authUser?.id;
 
     if (currentId === id) {
       alert("CRITICAL ERROR: Cannot decommission active operative session. Identity protection enabled.");
@@ -99,9 +100,7 @@ export default function Users() {
 
     if (confirm('Decommission this account? All associated privileges will be revoked.')) {
       try {
-        localDb.delete(STORAGE_KEYS.USERS, id);
-        // Explicitly refresh state to ensure immediate UI update
-        setUsers(localDb.getAll<User>(STORAGE_KEYS.USERS));
+        await firestoreDb.delete(STORAGE_KEYS.USERS, id);
         console.log(`Operative ${id} decommissioned.`);
       } catch (err) {
         console.error('Decommission failure:', err);
