@@ -753,18 +753,25 @@ export default function POS() {
              </div>
 
              <div className="flex gap-1 overflow-x-auto pb-1 custom-scrollbar scroll-smooth no-scrollbar">
-               {['All', ...CATEGORIES.map(c => c.name)].map((cat) => (
-                 <button
-                   key={cat}
-                   onClick={() => setSelectedCategory(cat)}
-                   className={cn(
-                     "win-button px-4 py-1.5 text-[9px] font-black uppercase tracking-tight whitespace-nowrap transition-all",
-                     selectedCategory === cat ? "bg-white text-[var(--color-win-blue)] border-2 border-dotted shadow-inner" : "opacity-70"
-                   )}
-                 >
-                   {cat}
-                 </button>
-               ))}
+               {['All', ...CATEGORIES.map(c => c.name)].map((cat) => {
+                 const count = cat === 'All' 
+                   ? products.length 
+                   : products.filter(p => p.category === cat).length;
+                 
+                 return (
+                   <button
+                     key={cat}
+                     onClick={() => setSelectedCategory(cat)}
+                     className={cn(
+                       "win-button px-4 py-1.5 text-[9px] font-black uppercase tracking-tight whitespace-nowrap transition-all flex items-center gap-2",
+                       selectedCategory === cat ? "bg-white text-[var(--color-win-blue)] border-2 border-dotted shadow-inner" : "opacity-70"
+                     )}
+                   >
+                     <span>{cat}</span>
+                     <span className="win-inset bg-black/10 px-1 text-[7px] font-mono opacity-60">{count}</span>
+                   </button>
+                 );
+               })}
              </div>
           </div>
         </div>

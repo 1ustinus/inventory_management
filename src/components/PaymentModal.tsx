@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, CreditCard, Wallet, Smartphone, Banknote, CheckCircle2 } from 'lucide-react';
+import { X, Wallet, Smartphone, Banknote, CheckCircle2 } from 'lucide-react';
 import { formatCurrency, cn } from '../lib/utils';
 import { PAYMENT_METHODS } from '../constants';
 import { PaymentMethod } from '../types';
@@ -38,9 +38,7 @@ export default function PaymentModal({ isOpen, onClose, total, onConfirm }: Paym
 
   const paymentIcons = {
     cash: Banknote,
-    gcash: Smartphone,
-    maya: Wallet,
-    card: CreditCard
+    gcash: Smartphone
   };
 
   return (

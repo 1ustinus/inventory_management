@@ -22,9 +22,20 @@ export const CATEGORIES = [
 
 export const PAYMENT_METHODS = [
   { label: "Cash", value: "cash" },
-  { label: "GCash", value: "gcash" },
-  { label: "Maya", value: "maya" },
-  { label: "Card", value: "card" }
+  { label: "GCash", value: "gcash" }
 ];
 
 export const TAX_RATE = 0.12; // 12% VAT
+
+export const MODULE_PERMISSIONS = {
+  version: "1.0.0",
+  lastSecurityAudit: "2026-05-15",
+  maxClearanceLevel: 5
+};
+
+export const MODULE_BACKUP = {
+  autoBackupEnabled: true,
+  backupInterval: "24h",
+  retentionPolicy: "30 days",
+  cloudProvider: "Internal System Vault"
+};

@@ -15,7 +15,14 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-import { STORE_NAME, STORE_ADDRESS, STORE_PHONE } from '../constants';
+import { 
+  STORE_NAME, 
+  STORE_ADDRESS, 
+  STORE_PHONE,
+  MODULE_PERMISSIONS,
+  MODULE_BACKUP
+} from '../constants';
+import { PERMISSION_LABELS } from '../lib/permissions';
 
 export default function Settings() {
   const [activeTab, setActiveTab] = useState('Profile');
@@ -192,6 +199,124 @@ export default function Settings() {
 
                       <div className="mt-6 p-3 win-inset bg-white text-[9px] font-black text-red-700 uppercase italic">
                         Warning: Protocol notifications are dispatched through internal system channels. Ensure sound drivers are active.
+                      </div>
+                   </div>
+                </motion.div>
+              )}
+
+              {activeTab === 'Permissions' && (
+                <motion.div
+                  key="permissions"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="p-6 space-y-4"
+                >
+                   <div className="win-inset bg-white/40 p-4">
+                      <h3 className="text-xs font-black text-[var(--color-win-blue)] uppercase underline mb-4">Master Privilege Matrix</h3>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {Object.entries(PERMISSION_LABELS).map(([id, label]) => (
+                          <div key={id} className="flex items-center justify-between p-2 win-outset bg-[var(--color-win-bg)]">
+                            <div className="flex flex-col">
+                               <span className="text-[9px] font-black text-gray-800 uppercase tracking-tighter">{label}</span>
+                               <span className="text-[7px] text-gray-500 font-mono opacity-60">ID: {id}</span>
+                            </div>
+                            <div className="win-inset px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[8px] font-black uppercase">Active</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-3 gap-2">
+                         <div className="win-inset p-2 bg-gray-50 text-center">
+                            <span className="block text-[7px] text-gray-500 font-bold uppercase">Version</span>
+                            <span className="text-[10px] font-black text-[var(--color-win-blue)]">{MODULE_PERMISSIONS.version}</span>
+                         </div>
+                         <div className="win-inset p-2 bg-gray-50 text-center">
+                            <span className="block text-[7px] text-gray-500 font-bold uppercase">Audit</span>
+                            <span className="text-[10px] font-black text-[var(--color-win-blue)]">{MODULE_PERMISSIONS.lastSecurityAudit}</span>
+                         </div>
+                         <div className="win-inset p-2 bg-gray-50 text-center">
+                            <span className="block text-[7px] text-gray-500 font-bold uppercase">Clearance</span>
+                            <span className="text-[10px] font-black text-[var(--color-win-blue)]">LVL_{MODULE_PERMISSIONS.maxClearanceLevel}</span>
+                         </div>
+                      </div>
+
+                      <div className="mt-6 p-3 win-inset bg-blue-50 text-blue-900 text-[9px] font-black uppercase italic leading-normal">
+                        System Policy: Permissions are defined in the core protocol. To re-assign clearances, navigate to Registry & Personnel.
+                      </div>
+                   </div>
+                </motion.div>
+              )}
+
+              {activeTab === 'Backup' && (
+                <motion.div
+                  key="backup"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="p-6 space-y-6"
+                >
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="win-outset p-4 bg-white/40 space-y-4">
+                         <h3 className="text-[10px] font-black uppercase text-[var(--color-win-text)] flex items-center gap-2">
+                            <Database className="w-3.5 h-3.5" /> Data Preservation
+                         </h3>
+                         <p className="text-[9px] font-bold text-gray-600 italic">Generate a complete system state snapshot for disaster recovery.</p>
+                         <button className="win-button w-full py-2 bg-emerald-700 text-white font-black text-[10px] uppercase shadow-[2px_2px_0] shadow-emerald-900/40">
+                            Download_Global_Snapshot.json
+                         </button>
+                      </div>
+
+                      <div className="win-outset p-4 bg-white/40 space-y-4 text-red-900 border-red-200">
+                         <h3 className="text-[10px] font-black uppercase flex items-center gap-2">
+                            <Shield className="w-3.5 h-3.5" /> Restore Matrix
+                         </h3>
+                         <p className="text-[9px] font-bold italic">Warning: Manual restoration will overwrite current operational registry.</p>
+                         <button className="win-button w-full py-2 border-red-700 text-red-700 font-black text-[10px] uppercase italic">
+                            Initialize_Recall_Sequence
+                         </button>
+                      </div>
+                   </div>
+
+                   <div className="win-inset bg-white/40 p-4">
+                      <h4 className="text-[8px] font-black uppercase text-gray-500 mb-3 border-b pb-1">Operational Parameters</h4>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                         <div>
+                            <span className="block text-[7px] text-gray-400 font-bold uppercase">Auto-sync</span>
+                            <span className="text-[10px] font-black uppercase">{MODULE_BACKUP.autoBackupEnabled ? 'Enabled' : 'Disabled'}</span>
+                         </div>
+                         <div>
+                            <span className="block text-[7px] text-gray-400 font-bold uppercase">Interval</span>
+                            <span className="text-[10px] font-black uppercase">{MODULE_BACKUP.backupInterval}</span>
+                         </div>
+                         <div>
+                            <span className="block text-[7px] text-gray-400 font-bold uppercase">Retention</span>
+                            <span className="text-[10px] font-black uppercase">{MODULE_BACKUP.retentionPolicy}</span>
+                         </div>
+                         <div>
+                            <span className="block text-[7px] text-gray-400 font-bold uppercase">Vault</span>
+                            <span className="text-[10px] font-black uppercase">{MODULE_BACKUP.cloudProvider}</span>
+                         </div>
+                      </div>
+                   </div>
+
+                   <div className="win-inset bg-gray-50 p-4">
+                      <div className="flex items-center justify-between mb-4 border-b pb-2">
+                         <span className="text-[10px] font-black uppercase">Retention Logs</span>
+                         <span className="text-[8px] font-mono opacity-50">Sectors: 2048/2048</span>
+                      </div>
+                      <div className="space-y-1 font-mono text-[8px] text-gray-500 uppercase">
+                         <div className="flex justify-between">
+                            <span>[ 2026-05-15 08:30 ] Cloud_Sync_Protocol: Successful</span>
+                            <span className="text-emerald-700">OK</span>
+                         </div>
+                         <div className="flex justify-between">
+                            <span>[ 2026-05-14 23:59 ] Auto_Archive_Daily: Compressed</span>
+                            <span className="text-emerald-700">OK</span>
+                         </div>
+                         <div className="flex justify-between">
+                            <span>[ 2026-05-14 12:00 ] Checkpoint_Alpha: Verified</span>
+                            <span className="text-emerald-700">OK</span>
+                         </div>
                       </div>
                    </div>
                 </motion.div>

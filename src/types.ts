@@ -49,7 +49,7 @@ export interface CartItem extends Product {
   quantity: number;
 }
 
-export type PaymentMethod = 'cash' | 'gcash' | 'maya' | 'card';
+export type PaymentMethod = 'cash' | 'gcash';
 
 export interface Sale {
   id: string;
